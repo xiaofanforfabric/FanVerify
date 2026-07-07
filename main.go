@@ -1,0 +1,453 @@
+package main
+
+import (
+	"bufio"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+)
+
+const (
+	defaultPort  = "8888"
+	defaultAppID = "wxea50dc0c6b97b784"
+	wxAPI        = "https://api.weixin.qq.com/sns/jscode2session"
+)
+
+type CodeRequest struct {
+	Code string `json:"code"`
+}
+
+type WxResponse struct {
+	OpenID     string `json:"openid,omitempty"`
+	SessionKey string `json:"session_key,omitempty"`
+	UnionID    string `json:"unionid,omitempty"`
+	ErrCode    int    `json:"errcode,omitempty"`
+	ErrMsg     string `json:"errmsg,omitempty"`
+}
+
+type ApiResponse struct {
+	Success bool        `json:"success"`
+	Data    interface{} `json:"data,omitempty"`
+	Error   string      `json:"error,omitempty"`
+}
+
+type UserData struct {
+	UID          int    `json:"uid"`
+	RegTime      string `json:"reg_time"`
+	Level        int    `json:"level"`
+	Phone        string `json:"phone"`
+	TmpCode      string `json:"tmp_code"`
+	CodeLevel    int    `json:"code_level"`
+	CodeLostTime string `json:"code_lost_time"`
+	Status       string `json:"status"`
+	Tag          string `json:"tag"`
+	OpenID       string `json:"openid"`
+}
+
+func main() {
+	loadEnv()
+
+	appID := getEnv("WX_APPID", defaultAppID)
+	secret := getEnv("WX_SECRET", "")
+	if secret == "" {
+		log.Fatal(".env 文件中未设置 WX_SECRET（小程序密钥）")
+	}
+	port := getEnv("PORT", defaultPort)
+
+	// 初始化数据库
+	initDB()
+
+	mux := http.NewServeMux()
+	codeSecret := getEnv("CODE_SECRET", "")
+	if codeSecret == "" {
+		log.Fatal(".env 文件中未设置 CODE_SECRET（验证码共享密钥）")
+	}
+
+	mux.HandleFunc("/api/wx/code/openid", corsMiddleware(handleCodeOpenID(appID, secret)))
+	mux.HandleFunc("/api/wx/code/generate", corsMiddleware(handleCodeGenerate(codeSecret)))
+	mux.HandleFunc("/api/wx/update/code_level", corsMiddleware(handleUpdateCodeLevel(appID, secret, codeSecret)))
+
+	addr := ":" + port
+	log.Printf("FanAuth 后端服务启动，监听端口 %s", port)
+	log.Printf("API 地址: http://localhost%s/api/wx/code/openid", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		log.Fatalf("服务启动失败: %v", err)
+	}
+}
+
+func handleCodeOpenID(appID, secret string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, ApiResponse{Success: false, Error: "仅支持 POST 请求"})
+			return
+		}
+
+		// 解析请求体
+		var req CodeRequest
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "读取请求体失败: " + err.Error()})
+			return
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "解析 JSON 失败: " + err.Error()})
+			return
+		}
+		if req.Code == "" {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "code 不能为空"})
+			return
+		}
+
+		// 调用微信服务器 jscode2session
+		wxURL := fmt.Sprintf("%s?appid=%s&secret=%s&js_code=%s&grant_type=authorization_code",
+			wxAPI, appID, secret, req.Code)
+
+		wxResp, err := callWeChatAPI(wxURL)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: err.Error()})
+			return
+		}
+
+		// 微信返回 errcode 表示失败
+		if wxResp.ErrCode != 0 {
+			writeJSON(w, http.StatusOK, ApiResponse{
+				Success: false,
+				Error:   fmt.Sprintf("微信返回错误 (errcode=%d): %s", wxResp.ErrCode, wxResp.ErrMsg),
+			})
+			return
+		}
+
+		// 查库：根据 openid 查找用户
+		user, err := findUserByOpenID(wxResp.OpenID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "数据库查询失败: " + err.Error()})
+			return
+		}
+
+		if user == nil {
+			// 未找到 → 新用户，自动注册
+			newUID, err := insertUser(wxResp.OpenID)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "注册用户失败: " + err.Error()})
+				return
+			}
+			user = &UserData{
+				UID:    newUID,
+				OpenID: wxResp.OpenID,
+				Level:  1,
+				Status: "ok",
+			}
+			log.Printf("🆕 新用户注册 UID=%d, openid=%s", newUID, wxResp.OpenID)
+		} else {
+			log.Printf("🔑 用户登录 UID=%d, openid=%s", user.UID, user.OpenID)
+		}
+
+		// 成功返回用户数据
+		writeJSON(w, http.StatusOK, ApiResponse{
+			Success: true,
+			Data:    user,
+		})
+	}
+}
+
+func callWeChatAPI(wxURL string) (*WxResponse, error) {
+	resp, err := http.Get(wxURL)
+	if err != nil {
+		return nil, fmt.Errorf("请求微信服务器失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取微信响应失败: %w", err)
+	}
+
+	var wxResp WxResponse
+	if err := json.Unmarshal(body, &wxResp); err != nil {
+		return nil, fmt.Errorf("解析微信响应失败: %w", err)
+	}
+	return &wxResp, nil
+}
+
+func findUserByOpenID(openid string) (*UserData, error) {
+	row := db.QueryRow(`SELECT UID, reg_time, level, phone, tmp_code, code_level, code_lost_time, status, tag, openid
+		FROM userdata WHERE openid = ?`, openid)
+
+	var u UserData
+	err := row.Scan(&u.UID, &u.RegTime, &u.Level, &u.Phone, &u.TmpCode, &u.CodeLevel, &u.CodeLostTime, &u.Status, &u.Tag, &u.OpenID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func insertUser(openid string) (int, error) {
+	result, err := db.Exec(`INSERT INTO userdata (openid) VALUES (?)`, openid)
+	if err != nil {
+		return 0, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return int(id), nil
+}
+
+// ===== 验证码生成接口 =====
+
+type CodeGenerateRequest struct {
+	UID int `json:"uid"`
+}
+
+func handleCodeGenerate(sharedSecret string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, ApiResponse{Success: false, Error: "仅支持 POST 请求"})
+			return
+		}
+
+		var req CodeGenerateRequest
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "读取请求体失败: " + err.Error()})
+			return
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "解析 JSON 失败: " + err.Error()})
+			return
+		}
+		if req.UID == 0 {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "uid 不能为空"})
+			return
+		}
+
+		// 查用户
+		user, err := findUserByUID(req.UID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "查询用户失败: " + err.Error()})
+			return
+		}
+		if user == nil {
+			writeJSON(w, http.StatusOK, ApiResponse{Success: false, Error: "用户不存在"})
+			return
+		}
+
+		now := time.Now()
+		expireMs := getExpireTime(now)
+
+		// 检查现有验证码是否仍有效
+		if user.TmpCode != "" && user.CodeLostTime != "" {
+			var lostTime int64
+			fmt.Sscanf(user.CodeLostTime, "%d", &lostTime)
+			if lostTime > now.UnixMilli() {
+				// 未过期，直接返回现有 code
+				log.Printf("♻️ UID=%d 复用验证码 %s，剩余 %ds", req.UID, user.TmpCode, (lostTime-now.UnixMilli())/1000)
+				writeJSON(w, http.StatusOK, ApiResponse{
+					Success: true,
+					Data: map[string]interface{}{
+						"code":           user.TmpCode,
+						"code_lost_time": user.CodeLostTime,
+					},
+				})
+				return
+			}
+		}
+
+		// 生成新验证码（按用户当前 code_level）
+		codeLevel := user.CodeLevel
+		if !isValidCodeLevel(codeLevel) {
+			codeLevel = codeLevel1
+		}
+		newCode := generateCode(sharedSecret, user.OpenID, now, codeLevel)
+		expireStr := fmt.Sprintf("%d", expireMs)
+
+		// 写入数据库
+		_, err = db.Exec(`UPDATE userdata SET tmp_code = ?, code_lost_time = ? WHERE UID = ?`,
+			newCode, expireStr, req.UID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "保存验证码失败: " + err.Error()})
+			return
+		}
+
+		log.Printf("🆕 UID=%d 生成验证码 %s，过期 %d", req.UID, newCode, expireMs)
+
+		writeJSON(w, http.StatusOK, ApiResponse{
+			Success: true,
+			Data: map[string]interface{}{
+				"code":           newCode,
+				"code_lost_time": expireStr,
+			},
+		})
+	}
+}
+
+// ===== 更新验证码等级接口 =====
+
+type UpdateCodeLevelRequest struct {
+	Code         string `json:"code"`
+	NewCodeLevel int    `json:"new_code_level"`
+}
+
+func handleUpdateCodeLevel(appID, secret, codeSecret string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, ApiResponse{Success: false, Error: "仅支持 POST 请求"})
+			return
+		}
+
+		var req UpdateCodeLevelRequest
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "读取请求体失败: " + err.Error()})
+			return
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "解析 JSON 失败: " + err.Error()})
+			return
+		}
+		if req.Code == "" {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "code 不能为空"})
+			return
+		}
+		if !isValidCodeLevel(req.NewCodeLevel) {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "new_code_level 必须为 1、2 或 3"})
+			return
+		}
+
+		// 用 code 换 openid
+		wxURL := fmt.Sprintf("%s?appid=%s&secret=%s&js_code=%s&grant_type=authorization_code",
+			wxAPI, appID, secret, req.Code)
+
+		wxResp, err := callWeChatAPI(wxURL)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: err.Error()})
+			return
+		}
+		if wxResp.ErrCode != 0 {
+			writeJSON(w, http.StatusForbidden, ApiResponse{
+				Success: false,
+				Error:   fmt.Sprintf("微信验证失败 (errcode=%d): %s", wxResp.ErrCode, wxResp.ErrMsg),
+			})
+			return
+		}
+
+		// 查库
+		user, err := findUserByOpenID(wxResp.OpenID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "数据库查询失败: " + err.Error()})
+			return
+		}
+		if user == nil {
+			writeJSON(w, http.StatusForbidden, ApiResponse{Success: false, Error: "用户不存在，拒绝访问"})
+			return
+		}
+
+		// 更新 code_level
+		_, err = db.Exec(`UPDATE userdata SET code_level = ? WHERE UID = ?`, req.NewCodeLevel, user.UID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "更新失败: " + err.Error()})
+			return
+		}
+
+		// 立刻重新生成验证码
+		now := time.Now()
+		newCode := generateCode(codeSecret, user.OpenID, now, req.NewCodeLevel)
+		expireMs := getExpireTime(now)
+		expireStr := fmt.Sprintf("%d", expireMs)
+
+		_, err = db.Exec(`UPDATE userdata SET tmp_code = ?, code_lost_time = ? WHERE UID = ?`,
+			newCode, expireStr, user.UID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "生成验证码失败: " + err.Error()})
+			return
+		}
+
+		log.Printf("🔁 UID=%d code_level 更新为 %d，新验证码 %s", user.UID, req.NewCodeLevel, newCode)
+
+		writeJSON(w, http.StatusOK, ApiResponse{
+			Success: true,
+			Data: map[string]interface{}{
+				"code":           200,
+				"new_code_level": req.NewCodeLevel,
+				"new_tmp_code":   newCode,
+			},
+		})
+	}
+}
+
+func findUserByUID(uid int) (*UserData, error) {
+	row := db.QueryRow(`SELECT UID, reg_time, level, phone, tmp_code, code_level, code_lost_time, status, tag, openid
+		FROM userdata WHERE UID = ?`, uid)
+
+	var u UserData
+	err := row.Scan(&u.UID, &u.RegTime, &u.Level, &u.Phone, &u.TmpCode, &u.CodeLevel, &u.CodeLostTime, &u.Status, &u.Tag, &u.OpenID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+// loadEnv 读取 .env 文件并设置到环境变量
+func loadEnv() {
+	file, err := os.Open(".env")
+	if err != nil {
+		log.Println("未找到 .env 文件，仅使用系统环境变量")
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// 跳过空行和注释
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			if os.Getenv(key) == "" {
+				os.Setenv(key, val)
+			}
+		}
+	}
+}
+
+func getEnv(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return defaultVal
+}
