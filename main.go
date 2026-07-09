@@ -241,6 +241,16 @@ func handleCodeGenerate(sharedSecret string) http.HandlerFunc {
 			return
 		}
 
+		// 后端限流：每秒每 uid 最多 5 次
+		if !codeGenLimiter.allow(req.UID) {
+			w.Header().Set("Retry-After", "1")
+			writeJSON(w, http.StatusTooManyRequests, ApiResponse{
+				Success: false,
+				Error:   "请求过于频繁，请 1 秒后再试",
+			})
+			return
+		}
+
 		now := time.Now()
 		expireMs := getExpireTime(now)
 
