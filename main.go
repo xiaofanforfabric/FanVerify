@@ -2,13 +2,16 @@ package main
 
 import (
 	"bufio"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/skip2/go-qrcode"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -72,6 +75,8 @@ func main() {
 	mux.HandleFunc("/api/wx/code/openid", corsMiddleware(handleCodeOpenID(appID, secret)))
 	mux.HandleFunc("/api/wx/code/generate", corsMiddleware(handleCodeGenerate(codeSecret)))
 	mux.HandleFunc("/api/wx/update/code_level", corsMiddleware(handleUpdateCodeLevel(appID, secret, codeSecret)))
+	mux.HandleFunc("/openapi/otp", corsMiddleware(handleGenerateOTP()))
+	mux.HandleFunc("/openapi/genqrcode", corsMiddleware(handleGenerateQRCode()))
 
 	addr := ":" + port
 	log.Printf("FanAuth 后端服务启动，监听端口 %s", port)
@@ -461,4 +466,92 @@ func getEnv(key, defaultVal string) string {
 		return val
 	}
 	return defaultVal
+}
+
+// ===== OTP 生成接口 =====
+
+func handleGenerateOTP() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, ApiResponse{Success: false, Error: "仅支持 GET 请求"})
+			return
+		}
+
+		// 生成 16 位 OTP（大小写字母 + 数字）
+		otp := generateOTP(16)
+
+		log.Printf("🆔 生成 OTP: %s", otp)
+
+		writeJSON(w, http.StatusOK, ApiResponse{
+			Success: true,
+			Data: map[string]interface{}{
+				"otp": otp,
+			},
+		})
+	}
+}
+
+// generateOTP 生成指定长度的随机 OTP（大小写字母 + 数字）
+func generateOTP(length int) string {
+	const charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	result := make([]byte, length)
+	for i := range result {
+		n, _ := rand.Read(make([]byte, 1))
+		if n > 0 {
+			var b [1]byte
+			rand.Read(b[:])
+			result[i] = charset[int(b[0])%len(charset)]
+		}
+	}
+	return string(result)
+}
+
+// ===== 小程序码生成接口 =====
+
+// ===== 二维码生成接口 =====
+
+func handleGenerateQRCode() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, ApiResponse{Success: false, Error: "仅支持 GET 请求"})
+			return
+		}
+
+		// 获取参数
+		otp := r.URL.Query().Get("otp")
+		if otp == "" {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "otp 参数不能为空"})
+			return
+		}
+
+		// 获取尺寸参数
+		pxStr := r.URL.Query().Get("px")
+		px := 200 // 默认 200
+		if pxStr != "" {
+			if val, err := strconv.Atoi(pxStr); err == nil {
+				if val >= 120 && val <= 350 {
+					px = val
+				}
+			}
+		}
+
+		// 生成二维码内容 URL
+		qrContent := fmt.Sprintf("https://api.fanauth.cn/openapi/otp?otp=%s", otp)
+
+		// 生成二维码
+		qrCode, err := qrcode.Encode(qrContent, qrcode.Medium, px)
+		if err != nil {
+			log.Printf("❌ 生成二维码失败: %v", err)
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "生成二维码失败: " + err.Error()})
+			return
+		}
+
+		log.Printf("📷 生成二维码: otp=%s, size=%dx%d, data=%d bytes", otp, px, px, len(qrCode))
+
+		// 返回 PNG 图片
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", strconv.Itoa(len(qrCode)))
+		w.WriteHeader(http.StatusOK)
+		w.Write(qrCode)
+	}
 }
