@@ -389,6 +389,7 @@ func handleUpdateCodeLevel(appID, secret, codeSecret string) http.HandlerFunc {
 				"code":           200,
 				"new_code_level": req.NewCodeLevel,
 				"new_tmp_code":   newCode,
+				"code_lost_time":  expireStr,
 			},
 		})
 	}
