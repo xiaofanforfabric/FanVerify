@@ -89,6 +89,15 @@ func createSQLiteTables() {
 		log.Fatalf("创建 userdata 表失败: %v", err)
 	}
 
+	// 创建 OTP 表
+	otpQuery := `CREATE TABLE IF NOT EXISTS otpdata (
+		otp       TEXT NOT NULL PRIMARY KEY,
+		lostdate  TEXT NOT NULL
+	)`
+	if _, err := db.Exec(otpQuery); err != nil {
+		log.Fatalf("创建 otpdata 表失败: %v", err)
+	}
+
 	// UID 从 100000 开始
 	db.Exec("DELETE FROM sqlite_sequence WHERE name='userdata'")
 	db.Exec("INSERT INTO sqlite_sequence(name, seq) VALUES('userdata', 99999)")
@@ -115,6 +124,16 @@ func createMySQLTables() {
 	) AUTO_INCREMENT = 100000`
 	if _, err := db.Exec(query); err != nil {
 		log.Fatalf("创建 userdata 表失败: %v", err)
+	}
+
+	// 创建 OTP 表
+	otpQuery := `CREATE TABLE IF NOT EXISTS otpdata (
+		otp       VARCHAR(64) NOT NULL PRIMARY KEY,
+		lostdate  VARCHAR(20) NOT NULL,
+		INDEX idx_lostdate (lostdate)
+	)`
+	if _, err := db.Exec(otpQuery); err != nil {
+		log.Fatalf("创建 otpdata 表失败: %v", err)
 	}
 
 	// 兼容旧表：尝试添加新增字段
