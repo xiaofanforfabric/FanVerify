@@ -134,7 +134,7 @@ func createMySQLTables() {
 		lostdate  VARCHAR(20) NOT NULL,
 		UID       INT DEFAULT 0,
 		band_time VARCHAR(20) DEFAULT '',
-		INDEX idx_lostdate (lostdate)
+		INDEX idx_lostdate (lostdate),
 		INDEX idx_uid (UID)
 	)`
 	if _, err := db.Exec(otpQuery); err != nil {
