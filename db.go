@@ -117,7 +117,7 @@ func createMySQLTables() {
 		phone         VARCHAR(20)  NOT NULL DEFAULT '',
 		tmp_code      VARCHAR(128) NOT NULL DEFAULT '',
 		code_level    INT          NOT NULL DEFAULT 0,
-		code_lost_time TEXT        NOT NULL DEFAULT '',
+		code_lost_time VARCHAR(20)  NOT NULL DEFAULT '',
 		status        VARCHAR(8)   NOT NULL DEFAULT 'ok',
 		tag           VARCHAR(64)  NOT NULL DEFAULT '',
 		openid        VARCHAR(64)  NOT NULL DEFAULT ''
