@@ -73,7 +73,7 @@ func main() {
 	}
 
 	mux.HandleFunc("/api/wx/code/openid", corsMiddleware(handleCodeOpenID(appID, secret)))
-	mux.HandleFunc("/api/wx/code/generate", corsMiddleware(handleCodeGenerate(codeSecret)))
+	mux.HandleFunc("/api/wx/code/generate", corsMiddleware(handleCodeGenerate(appID, secret, codeSecret)))
 	mux.HandleFunc("/api/wx/update/code_level", corsMiddleware(handleUpdateCodeLevel(appID, secret, codeSecret)))
 	mux.HandleFunc("/openapi/otp", corsMiddleware(handleGenerateOTP()))
 	mux.HandleFunc("/openapi/genqrcode", corsMiddleware(handleGenerateQRCode()))
@@ -210,10 +210,10 @@ func insertUser(openid string) (int, error) {
 // ===== 验证码生成接口 =====
 
 type CodeGenerateRequest struct {
-	UID int `json:"uid"`
+	Code string `json:"code"`
 }
 
-func handleCodeGenerate(sharedSecret string) http.HandlerFunc {
+func handleCodeGenerate(appID, secret, sharedSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeJSON(w, http.StatusMethodNotAllowed, ApiResponse{Success: false, Error: "仅支持 POST 请求"})
@@ -230,13 +230,25 @@ func handleCodeGenerate(sharedSecret string) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "解析 JSON 失败: " + err.Error()})
 			return
 		}
-		if req.UID == 0 {
-			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "uid 不能为空"})
+		if req.Code == "" {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "code 不能为空"})
 			return
 		}
 
-		// 查用户
-		user, err := findUserByUID(req.UID)
+		// 调用微信 API 获取 openid
+		wxURL := fmt.Sprintf("%s?appid=%s&secret=%s&js_code=%s&grant_type=authorization_code", wxAPI, appID, secret, req.Code)
+		wxResp, err := callWeChatAPI(wxURL)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "调用微信 API 失败: " + err.Error()})
+			return
+		}
+		if wxResp.ErrCode != 0 {
+			writeJSON(w, http.StatusUnauthorized, ApiResponse{Success: false, Error: "微信验证失败: " + wxResp.ErrMsg})
+			return
+		}
+
+		// 根据 openid 查用户
+		user, err := findUserByOpenID(wxResp.OpenID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "查询用户失败: " + err.Error()})
 			return
@@ -247,7 +259,7 @@ func handleCodeGenerate(sharedSecret string) http.HandlerFunc {
 		}
 
 		// 后端限流：每秒每 uid 最多 5 次
-		if !codeGenLimiter.allow(req.UID) {
+		if !codeGenLimiter.allow(user.UID) {
 			w.Header().Set("Retry-After", "1")
 			writeJSON(w, http.StatusTooManyRequests, ApiResponse{
 				Success: false,
@@ -265,7 +277,7 @@ func handleCodeGenerate(sharedSecret string) http.HandlerFunc {
 			fmt.Sscanf(user.CodeLostTime, "%d", &lostTime)
 			if lostTime > now.UnixMilli() {
 				// 未过期，直接返回现有 code
-				log.Printf("♻️ UID=%d 复用验证码 %s，剩余 %ds", req.UID, user.TmpCode, (lostTime-now.UnixMilli())/1000)
+				log.Printf("♻️ UID=%d 复用验证码 %s，剩余 %ds", user.UID, user.TmpCode, (lostTime-now.UnixMilli())/1000)
 				writeJSON(w, http.StatusOK, ApiResponse{
 					Success: true,
 					Data: map[string]interface{}{
@@ -287,13 +299,13 @@ func handleCodeGenerate(sharedSecret string) http.HandlerFunc {
 
 		// 写入数据库
 		_, err = db.Exec(`UPDATE userdata SET tmp_code = ?, code_lost_time = ? WHERE UID = ?`,
-			newCode, expireStr, req.UID)
+			newCode, expireStr, user.UID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "保存验证码失败: " + err.Error()})
 			return
 		}
 
-		log.Printf("🆕 UID=%d 生成验证码 %s，过期 %d", req.UID, newCode, expireMs)
+		log.Printf("🆕 UID=%d 生成验证码 %s，过期 %d", user.UID, newCode, expireMs)
 
 		writeJSON(w, http.StatusOK, ApiResponse{
 			Success: true,

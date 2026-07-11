@@ -92,7 +92,9 @@ func createSQLiteTables() {
 	// 创建 OTP 表
 	otpQuery := `CREATE TABLE IF NOT EXISTS otpdata (
 		otp       TEXT NOT NULL PRIMARY KEY,
-		lostdate  TEXT NOT NULL
+		lostdate  TEXT NOT NULL,
+		UID       INTEGER DEFAULT 0,
+		band_time TEXT DEFAULT ''
 	)`
 	if _, err := db.Exec(otpQuery); err != nil {
 		log.Fatalf("创建 otpdata 表失败: %v", err)
@@ -130,7 +132,10 @@ func createMySQLTables() {
 	otpQuery := `CREATE TABLE IF NOT EXISTS otpdata (
 		otp       VARCHAR(64) NOT NULL PRIMARY KEY,
 		lostdate  VARCHAR(20) NOT NULL,
+		UID       INT DEFAULT 0,
+		band_time VARCHAR(20) DEFAULT '',
 		INDEX idx_lostdate (lostdate)
+		INDEX idx_uid (UID)
 	)`
 	if _, err := db.Exec(otpQuery); err != nil {
 		log.Fatalf("创建 otpdata 表失败: %v", err)
