@@ -100,6 +100,25 @@ func createSQLiteTables() {
 		log.Fatalf("创建 otpdata 表失败: %v", err)
 	}
 
+	// 创建开发者认证表
+	devQuery := `CREATE TABLE IF NOT EXISTS devdata (
+		id                INTEGER      NOT NULL PRIMARY KEY AUTOINCREMENT,
+		devaccesstoken    TEXT         NOT NULL UNIQUE,
+		NEL               INTEGER      NOT NULL DEFAULT 1,
+		BUID              INTEGER      NOT NULL DEFAULT 0,
+		BIP               TEXT         DEFAULT NULL,
+		mode              TEXT         NOT NULL DEFAULT 'HTTP',
+		Date_of_Issue     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		SME               TEXT         DEFAULT '',
+		status            TEXT         NOT NULL DEFAULT 'wait',
+		NOV               INTEGER      NOT NULL DEFAULT 0,
+		tmp_ip            TEXT         DEFAULT '',
+		tmp_ip_lost_time  TEXT         DEFAULT ''
+	)`
+	if _, err := db.Exec(devQuery); err != nil {
+		log.Fatalf("创建 devdata 表失败: %v", err)
+	}
+
 	// UID 从 100000 开始
 	db.Exec("DELETE FROM sqlite_sequence WHERE name='userdata'")
 	db.Exec("INSERT INTO sqlite_sequence(name, seq) VALUES('userdata', 99999)")
@@ -139,6 +158,28 @@ func createMySQLTables() {
 	)`
 	if _, err := db.Exec(otpQuery); err != nil {
 		log.Fatalf("创建 otpdata 表失败: %v", err)
+	}
+
+	// 创建开发者认证表
+	devQuery := `CREATE TABLE IF NOT EXISTS devdata (
+		id                INT          NOT NULL PRIMARY KEY AUTO_INCREMENT,
+		devaccesstoken    VARCHAR(128) NOT NULL UNIQUE,
+		NEL               INT          NOT NULL DEFAULT 1,
+		BUID              INT          NOT NULL DEFAULT 0,
+		BIP               VARCHAR(64)  DEFAULT NULL,
+		mode              VARCHAR(10)  NOT NULL DEFAULT 'HTTP',
+		Date_of_Issue     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		SME               TEXT,
+		status            VARCHAR(10)  NOT NULL DEFAULT 'wait',
+		NOV               INT          NOT NULL DEFAULT 0,
+		tmp_ip            VARCHAR(64)  DEFAULT '',
+		tmp_ip_lost_time  VARCHAR(20)  DEFAULT '',
+		INDEX idx_devaccesstoken (devaccesstoken),
+		INDEX idx_buid (BUID),
+		INDEX idx_status (status)
+	)`
+	if _, err := db.Exec(devQuery); err != nil {
+		log.Fatalf("创建 devdata 表失败: %v", err)
 	}
 
 	// 兼容旧表：尝试添加新增字段
