@@ -27,7 +27,7 @@ func initDB() {
 }
 
 func initSQLite() {
-	dsn := "./fanauth.db"
+	dsn := "./fanverify.db"
 	var err error
 	db, err = sql.Open("sqlite", dsn)
 	if err != nil {
@@ -46,7 +46,7 @@ func initMySQL() {
 	port := getEnv("MYSQL_PORT", "3306")
 	user := getEnv("MYSQL_USER", "root")
 	pass := getEnv("MYSQL_PASS", "")
-	dbName := getEnv("MYSQL_DB", "fanauth")
+	dbName := getEnv("MYSQL_DB", "fanverify")
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
 		user, pass, host, port, dbName)
@@ -144,6 +144,19 @@ func createMySQLTables() {
 	// 兼容旧表：尝试添加新增字段
 	db.Exec("ALTER TABLE userdata ADD COLUMN code_lost_time TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE userdata ADD COLUMN status VARCHAR(8) NOT NULL DEFAULT 'ok'")
+
+	// 检查并修复 otpdata 表结构
+	var columnCount int
+	err := db.QueryRow("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'otpdata' AND COLUMN_NAME = 'UID'").Scan(&columnCount)
+	if err == nil && columnCount == 0 {
+		// UID 列不存在，添加列
+		log.Println("⚠️ otpdata 表缺少 UID 列，正在修复...")
+		db.Exec("ALTER TABLE otpdata ADD COLUMN UID INT DEFAULT 0")
+		db.Exec("ALTER TABLE otpdata ADD COLUMN band_time VARCHAR(20) DEFAULT ''")
+		db.Exec("ALTER TABLE otpdata ADD INDEX idx_lostdate (lostdate)")
+		db.Exec("ALTER TABLE otpdata ADD INDEX idx_uid (UID)")
+		log.Println("✅ otpdata 表结构已修复")
+	}
 
 	log.Println("✅ 数据表: userdata 就绪 (MySQL, UID起始 100000)")
 }

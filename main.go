@@ -22,6 +22,8 @@ const (
 	wxAPI        = "https://api.weixin.qq.com/sns/jscode2session"
 )
 
+var otpRateLimiter = make(map[string]int64) // OTP 限流器：otp -> 上次请求时间戳
+
 type CodeRequest struct {
 	Code string `json:"code"`
 }
@@ -75,11 +77,13 @@ func main() {
 	mux.HandleFunc("/api/wx/code/openid", corsMiddleware(handleCodeOpenID(appID, secret)))
 	mux.HandleFunc("/api/wx/code/generate", corsMiddleware(handleCodeGenerate(appID, secret, codeSecret)))
 	mux.HandleFunc("/api/wx/update/code_level", corsMiddleware(handleUpdateCodeLevel(appID, secret, codeSecret)))
+	mux.HandleFunc("/api/wx/otpAPI", corsMiddleware(handleOTPAPI(appID, secret)))
 	mux.HandleFunc("/openapi/otp", corsMiddleware(handleGenerateOTP()))
 	mux.HandleFunc("/openapi/genqrcode", corsMiddleware(handleGenerateQRCode()))
+	mux.HandleFunc("/openapi/seeotp", corsMiddleware(handleSeeOTP()))
 
 	addr := ":" + port
-	log.Printf("FanAuth 后端服务启动，监听端口 %s", port)
+	log.Printf("FanVerify 后端服务启动，监听端口 %s", port)
 	log.Printf("API 地址: http://localhost%s/api/wx/code/openid", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("服务启动失败: %v", err)
@@ -324,6 +328,11 @@ type UpdateCodeLevelRequest struct {
 	NewCodeLevel int    `json:"new_code_level"`
 }
 
+type OTPAPIRequest struct {
+	Code string `json:"code"`
+	OTP  string `json:"otp"`
+}
+
 func handleUpdateCodeLevel(appID, secret, codeSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -492,7 +501,18 @@ func handleGenerateOTP() http.HandlerFunc {
 		// 生成 16 位 OTP（大小写字母 + 数字）
 		otp := generateOTP(16)
 
-		log.Printf("🆔 生成 OTP: %s", otp)
+		// 计算过期时间（150 秒后）
+		lostdate := fmt.Sprintf("%d", time.Now().Add(150*time.Second).UnixMilli())
+
+		// 写入数据库
+		_, err := db.Exec("INSERT INTO otpdata (otp, lostdate, UID, band_time) VALUES (?, ?, 0, '')", otp, lostdate)
+		if err != nil {
+			log.Printf("❌ 写入 OTP 失败: %v", err)
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "生成失败"})
+			return
+		}
+
+		log.Printf("🆔 生成 OTP: %s, 过期时间: %s", otp, lostdate)
 
 		writeJSON(w, http.StatusOK, ApiResponse{
 			Success: true,
@@ -548,7 +568,7 @@ func handleGenerateQRCode() http.HandlerFunc {
 		}
 
 		// 生成二维码内容 URL
-		qrContent := fmt.Sprintf("https://api.fanauth.cn/openapi/otp?otp=%s", otp)
+		qrContent := fmt.Sprintf("https://api.fanverify.cn/openapi/otp?otp=%s", otp)
 
 		// 生成二维码
 		qrCode, err := qrcode.Encode(qrContent, qrcode.Medium, px)
@@ -565,5 +585,199 @@ func handleGenerateQRCode() http.HandlerFunc {
 		w.Header().Set("Content-Length", strconv.Itoa(len(qrCode)))
 		w.WriteHeader(http.StatusOK)
 		w.Write(qrCode)
+	}
+}
+
+// ===== OTP 轮询接口 =====
+
+func handleSeeOTP() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, ApiResponse{Success: false, Error: "仅支持 GET 请求"})
+			return
+		}
+
+		// 获取参数
+		otp := r.URL.Query().Get("otp")
+		if otp == "" {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "otp 参数不能为空"})
+			return
+		}
+
+		// 限流检查：5 秒间隔
+		now := time.Now().Unix()
+		if lastTime, exists := otpRateLimiter[otp]; exists {
+			if now-lastTime < 5 {
+				w.WriteHeader(249)
+				w.Write([]byte(`{"status":"rate_limit"}`))
+				return
+			}
+		}
+		otpRateLimiter[otp] = now
+
+		// 查询 OTP
+		var lostdate, bandTime string
+		var uid int
+		err := db.QueryRow("SELECT lostdate, UID, band_time FROM otpdata WHERE otp = ?", otp).Scan(&lostdate, &uid, &bandTime)
+
+		// OTP 不存在
+		if err == sql.ErrNoRows {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"404"}`))
+			return
+		}
+		if err != nil {
+			log.Printf("❌ 查询 OTP 失败: %v", err)
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "查询失败"})
+			return
+		}
+
+		// 检查是否过期
+		lostTimestamp, _ := strconv.ParseInt(lostdate, 10, 64)
+		if time.Now().UnixMilli() > lostTimestamp {
+			// 删除过期 OTP
+			db.Exec("DELETE FROM otpdata WHERE otp = ?", otp)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"lost"}`))
+			log.Printf("⏰ OTP 已过期并删除: %s", otp)
+			return
+		}
+
+		// 检查是否已扫描
+		if uid == 0 || bandTime == "" {
+			// 未扫描
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"wait"}`))
+			return
+		}
+
+		// 已扫描，查询用户信息
+		var regTime, tag string
+		var level int
+		err = db.QueryRow("SELECT reg_time, level, tag FROM userdata WHERE UID = ?", uid).Scan(&regTime, &level, &tag)
+		if err != nil {
+			log.Printf("❌ 查询用户信息失败: %v", err)
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "查询失败"})
+			return
+		}
+
+		// 删除 OTP 记录
+		db.Exec("DELETE FROM otpdata WHERE otp = ?", otp)
+
+		// 返回用户信息
+		response := map[string]interface{}{
+			"status": "ok",
+			"data": []map[string]interface{}{{
+				"uid":      uid,
+				"level":    strconv.Itoa(level),
+				"reg_time": regTime,
+				"tag":      tag,
+			}},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		log.Printf("✅ OTP 验证成功并删除: %s, UID: %d", otp, uid)
+	}
+}
+
+// ===== 小程序 OTP 绑定接口 =====
+
+func handleOTPAPI(appID, secret string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			w.Write([]byte(`{"code":405}`))
+			return
+		}
+
+		// 解析请求
+		var req OTPAPIRequest
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"code":400}`))
+			return
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"code":400}`))
+			return
+		}
+
+		if req.Code == "" || req.OTP == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"code":400}`))
+			return
+		}
+
+		// 验证微信 code
+		wxURL := fmt.Sprintf("%s?appid=%s&secret=%s&js_code=%s&grant_type=authorization_code", wxAPI, appID, secret, req.Code)
+		wxResp, err := callWeChatAPI(wxURL)
+		if err != nil || wxResp.ErrCode != 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"code":401}`))
+			log.Printf("❌ OTP API: 微信验证失败")
+			return
+		}
+
+		// 查询用户
+		user, err := findUserByOpenID(wxResp.OpenID)
+		if err != nil || user == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"code":401}`))
+			log.Printf("❌ OTP API: 用户不存在")
+			return
+		}
+
+		// 查询 OTP 是否存在且未过期
+		var lostdate string
+		var existingUID int
+		err = db.QueryRow("SELECT lostdate, UID FROM otpdata WHERE otp = ?", req.OTP).Scan(&lostdate, &existingUID)
+		if err == sql.ErrNoRows {
+			// OTP 不存在
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"code":404}`))
+			log.Printf("❌ OTP API: OTP 不存在 %s", req.OTP)
+			return
+		}
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"code":404}`))
+			return
+		}
+
+		// 检查是否过期
+		lostTimestamp, _ := strconv.ParseInt(lostdate, 10, 64)
+		if time.Now().UnixMilli() > lostTimestamp {
+			db.Exec("DELETE FROM otpdata WHERE otp = ?", req.OTP)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"code":404}`))
+			log.Printf("⏰ OTP API: OTP 已过期 %s", req.OTP)
+			return
+		}
+
+		// 检查是否已被绑定
+		if existingUID != 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"code":404}`))
+			log.Printf("❌ OTP API: OTP 已被绑定 %s", req.OTP)
+			return
+		}
+
+		// 绑定 OTP 到用户
+		bandTime := fmt.Sprintf("%d", time.Now().UnixMilli())
+		_, err = db.Exec("UPDATE otpdata SET UID = ?, band_time = ? WHERE otp = ?", user.UID, bandTime, req.OTP)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"code":404}`))
+			log.Printf("❌ OTP API: 绑定失败 %v", err)
+			return
+		}
+
+		// 返回成功
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"code":200}`))
+		log.Printf("✅ OTP API: 绑定成功, UID=%d, OTP=%s", user.UID, req.OTP)
 	}
 }

@@ -4,5 +4,5 @@
 build.ps1
 build.sh
 deploy/*
-fanauth-linux-amd64
-fanauth-linux-deploy.tar.gz
+fanverify-linux-amd64
+fanverify-linux-deploy.tar.gz
