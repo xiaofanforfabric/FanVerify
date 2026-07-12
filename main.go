@@ -81,9 +81,9 @@ func main() {
 	mux.HandleFunc("/api/wx/code/generate", corsMiddleware(handleCodeGenerate(appID, secret, codeSecret)))
 	mux.HandleFunc("/api/wx/update/code_level", corsMiddleware(handleUpdateCodeLevel(appID, secret, codeSecret)))
 	mux.HandleFunc("/api/wx/otpAPI", corsMiddleware(handleOTPAPI(appID, secret)))
-	mux.HandleFunc("/openapi/otp", corsMiddleware(handleGenerateOTP()))
-	mux.HandleFunc("/openapi/genqrcode", corsMiddleware(handleGenerateQRCode()))
-	mux.HandleFunc("/openapi/seeotp", corsMiddleware(handleSeeOTP()))
+	mux.HandleFunc("/openapi/otp", corsMiddleware(accessTokenMiddleware(handleGenerateOTP())))
+	mux.HandleFunc("/openapi/genqrcode", corsMiddleware(accessTokenMiddleware(handleGenerateQRCode())))
+	mux.HandleFunc("/openapi/seeotp", corsMiddleware(accessTokenMiddleware(handleSeeOTP())))
 
 	// Debug 路由
 	if debugMode {
@@ -91,6 +91,9 @@ func main() {
 		mux.HandleFunc("/api/debug/adddev", corsMiddleware(handleDebugAddDev()))
 		mux.HandleFunc("/api/debug/adddev/web/", handleDebugWebUI())
 	} else {
+		// 非 DEBUG 模式，拦截所有 debug 路由
+		mux.HandleFunc("/api/debug/adddev", handle404Debug())
+		mux.HandleFunc("/api/debug/adddev/web/", handle404Debug())
 		mux.HandleFunc("/api/debug/", handle404Debug())
 	}
 
@@ -457,6 +460,75 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		next(w, r)
+	}
+}
+
+// accessTokenMiddleware OpenAPI 访问令牌鉴权中间件
+func accessTokenMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// 从 URL 参数获取 accesstoken
+		accessToken := r.URL.Query().Get("accesstoken")
+		if accessToken == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"Unauthorized"}`))
+			return
+		}
+
+		// 查询开发者令牌
+		var devMode, devStatus, devBIP string
+		err := db.QueryRow("SELECT mode, status, BIP FROM devdata WHERE devaccesstoken = ?", accessToken).Scan(&devMode, &devStatus, &devBIP)
+		if err != nil {
+			// 令牌不存在
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"Unauthorized"}`))
+			log.Printf("❌ 鉴权失败: 令牌不存在 %s", accessToken)
+			return
+		}
+
+		// 检查模式是否为 HTTP
+		if devMode != "HTTP" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"Unauthorized"}`))
+			log.Printf("❌ 鉴权失败: 模式不匹配, 期望 HTTP 但得到 %s", devMode)
+			return
+		}
+
+		// 检查 IP 限制
+		clientIP := r.RemoteAddr
+		if idx := strings.LastIndex(clientIP, ":"); idx != -1 {
+			clientIP = clientIP[:idx] // 移除端口
+		}
+
+		if devBIP == "NULL" {
+			// NULL 禁止所有 HTTP 访问
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"Unauthorized"}`))
+			log.Printf("❌ 鉴权失败: BIP=NULL 禁止访问")
+			return
+		}
+
+		if devBIP != "ALL" && devBIP != clientIP {
+			// IP 不匹配
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"Unauthorized"}`))
+			log.Printf("❌ 鉴权失败: IP 不匹配, 期望 %s 但得到 %s", devBIP, clientIP)
+			return
+		}
+
+		// 检查状态
+		if devStatus != "ok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"Unauthorized"}`))
+			log.Printf("❌ 鉴权失败: 令牌状态为 %s", devStatus)
+			return
+		}
+
+		// 鉴权成功，记录验证次数
+		db.Exec("UPDATE devdata SET NOV = NOV + 1 WHERE devaccesstoken = ?", accessToken)
+		log.Printf("✅ 鉴权成功: %s, IP: %s", accessToken, clientIP)
+
+		// 继续处理
 		next(w, r)
 	}
 }
