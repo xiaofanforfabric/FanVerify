@@ -3,12 +3,24 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
 	"time"
+)
+
+const (
+	codeStep   = 150 // 验证码有效期 150 秒
+	codeSkew   = 1   // 前后允许 1 个时间窗口的偏差
+	codeLevel1 = 1   // 6 位数字
+	codeLevel2 = 2   // 4 位数字
+	codeLevel3 = 3   // 8 位数字+小写字母混合
+	alphabet   = "0123456789abcdefghijklmnopqrstuvwxyz"
 )
 
 var db *sql.DB
@@ -30,8 +42,10 @@ type WeChatAPIResponse struct {
 type User struct {
 	UID     int    `json:"uid"`
 	Level   int    `json:"level"`
+	CodeLevel int  `json:"code_level"`
 	RegTime string `json:"reg_time"`
 	Tag     string `json:"tag"`
+	Status  string `json:"status"`
 	OpenID  string `json:"openid"`
 }
 
@@ -151,11 +165,13 @@ func HandleCodeGenerate(appID, secret, codeSecret string) http.HandlerFunc {
 			return
 		}
 
-		verifyCode := generateVerifyCode(user.Level, codeSecret)
-		lostTime := fmt.Sprintf("%d", time.Now().Add(5*time.Minute).UnixMilli())
+		now := time.Now()
+		// 使用 TOTP 算法生成验证码
+		verifyCode := generateCode(codeSecret, wxResp.OpenID, now, user.CodeLevel)
+		lostTime := fmt.Sprintf("%d", getExpireTime(now))
 
 		_, err = db.Exec("UPDATE userdata SET tmp_code = ?, code_level = ?, code_lost_time = ? WHERE UID = ?",
-			verifyCode, user.Level, lostTime, user.UID)
+			verifyCode, user.CodeLevel, lostTime, user.UID)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"code":500}`))
@@ -164,8 +180,9 @@ func HandleCodeGenerate(appID, secret, codeSecret string) http.HandlerFunc {
 
 		response := map[string]interface{}{
 			"code": 200,
-			"data": map[string]string{
-				"verify_code": verifyCode,
+			"data": map[string]interface{}{
+				"verify_code":     verifyCode,
+				"code_lost_time":  lostTime,
 			},
 		}
 
@@ -176,7 +193,7 @@ func HandleCodeGenerate(appID, secret, codeSecret string) http.HandlerFunc {
 }
 
 // HandleUpdateCodeLevel 更新验证码等级
-func HandleUpdateCodeLevel(appID, secret string) http.HandlerFunc {
+func HandleUpdateCodeLevel(appID, secret, codeSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -212,11 +229,18 @@ func HandleUpdateCodeLevel(appID, secret string) http.HandlerFunc {
 			return
 		}
 
-		if req.NewCodeLevel < 0 || req.NewCodeLevel > 2 {
-			req.NewCodeLevel = 0
+		// 验证码等级: 1=6位数字, 2=4位数字, 3=8位混合
+		if req.NewCodeLevel < 1 || req.NewCodeLevel > 3 {
+			req.NewCodeLevel = 1 // 默认为 6 位数字
 		}
 
-		_, err = db.Exec("UPDATE userdata SET code_level = ? WHERE UID = ?", req.NewCodeLevel, user.UID)
+		// 生成新的验证码
+		now := time.Now()
+		newVerifyCode := generateCode(codeSecret, wxResp.OpenID, now, req.NewCodeLevel)
+		newLostTime := fmt.Sprintf("%d", getExpireTime(now))
+
+		_, err = db.Exec("UPDATE userdata SET code_level = ?, tmp_code = ?, code_lost_time = ? WHERE UID = ?",
+			req.NewCodeLevel, newVerifyCode, newLostTime, user.UID)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"code":500}`))
@@ -226,7 +250,9 @@ func HandleUpdateCodeLevel(appID, secret string) http.HandlerFunc {
 		response := map[string]interface{}{
 			"code": 200,
 			"data": map[string]interface{}{
-				"new_code_level": req.NewCodeLevel,
+				"new_code_level":  req.NewCodeLevel,
+				"new_tmp_code":    newVerifyCode,
+				"code_lost_time":  newLostTime,
 			},
 		}
 
@@ -365,28 +391,72 @@ func findOrCreateUser(openID string) (*User, error) {
 
 func findUserByOpenID(openID string) (*User, error) {
 	var user User
-	err := db.QueryRow("SELECT UID, level, reg_time, tag, openid FROM userdata WHERE openid = ?", openID).
-		Scan(&user.UID, &user.Level, &user.RegTime, &user.Tag, &user.OpenID)
+	err := db.QueryRow("SELECT UID, level, code_level, reg_time, tag, status, openid FROM userdata WHERE openid = ?", openID).
+		Scan(&user.UID, &user.Level, &user.CodeLevel, &user.RegTime, &user.Tag, &user.Status, &user.OpenID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &user, nil
+		return &user, nil
 }
 
+// TOTP 算法实现
+
+// hmacHash 计算 HMAC-SHA1 原始值
+func hmacHash(sharedSecret, msg string) []byte {
+	mac := hmac.New(sha1.New, []byte(sharedSecret))
+	mac.Write([]byte(msg))
+	return mac.Sum(nil)
+}
+
+// generateCode 基于 TOTP 算法生成指定等级的验证码
+func generateCode(sharedSecret, openid string, t time.Time, level int) string {
+	counter := t.Unix() / codeStep
+	msg := fmt.Sprintf("%s:%d:%d", openid, counter, level)
+	hash := hmacHash(sharedSecret, msg)
+
+	switch level {
+	case codeLevel2:
+		// 4 位数字
+		offset := hash[len(hash)-1] & 0xf
+		code := int(binary.BigEndian.Uint32(hash[offset:offset+4])) & 0x7fffffff
+		return fmt.Sprintf("%04d", code%10000)
+
+	case codeLevel3:
+		// 8 位数字+小写字母混合
+		result := make([]byte, 8)
+		for i := 0; i < 8; i++ {
+			idx := i * 2
+			if idx+1 < len(hash) {
+				result[i] = alphabet[int(hash[idx])%36]
+			} else {
+				result[i] = alphabet[int(hash[i])%36]
+			}
+		}
+		return string(result)
+
+	default:
+		// level 1: 6 位数字（默认）
+		offset := hash[len(hash)-1] & 0xf
+		code := int(binary.BigEndian.Uint32(hash[offset:offset+4])) & 0x7fffffff
+		return fmt.Sprintf("%06d", code%1000000)
+	}
+}
+
+// getExpireTime 返回当前时间窗口的过期时间戳（毫秒）
+func getExpireTime(t time.Time) int64 {
+	counter := t.Unix() / codeStep
+	expireUnix := (counter + 1) * codeStep
+	return expireUnix * 1000
+}
 func findUserByUID(uid int) (*User, error) {
 	var user User
-	err := db.QueryRow("SELECT UID, level, reg_time, tag, openid FROM userdata WHERE UID = ?", uid).
-		Scan(&user.UID, &user.Level, &user.RegTime, &user.Tag, &user.OpenID)
+	err := db.QueryRow("SELECT UID, level, code_level, reg_time, tag, status, openid FROM userdata WHERE UID = ?", uid).
+		Scan(&user.UID, &user.Level, &user.CodeLevel, &user.RegTime, &user.Tag, &user.Status, &user.OpenID)
 	if err != nil {
 		return nil, err
 	}
 	return &user, nil
-}
-
-func generateVerifyCode(level int, secret string) string {
-	timestamp := time.Now().Unix()
-	return fmt.Sprintf("%s_%d_%d", secret, level, timestamp)
 }

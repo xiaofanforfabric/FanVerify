@@ -41,7 +41,7 @@ func main() {
 	// 微信小程序接口
 	mux.HandleFunc("/api/wx/code/openid", handlers.CorsMiddleware(handlers.HandleCodeOpenID(appID, secret)))
 	mux.HandleFunc("/api/wx/code/generate", handlers.CorsMiddleware(handlers.HandleCodeGenerate(appID, secret, codeSecret)))
-	mux.HandleFunc("/api/wx/update/code_level", handlers.CorsMiddleware(handlers.HandleUpdateCodeLevel(appID, secret)))
+	mux.HandleFunc("/api/wx/update/code_level", handlers.CorsMiddleware(handlers.HandleUpdateCodeLevel(appID, secret, codeSecret)))
 	mux.HandleFunc("/api/wx/otpAPI", handlers.CorsMiddleware(handlers.HandleOTPAPI(appID, secret)))
 
 	// OpenAPI 接口（需要 accesstoken 鉴权）

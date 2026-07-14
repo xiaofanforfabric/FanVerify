@@ -24,9 +24,12 @@ func hmacHash(sharedSecret, msg string) []byte {
 	return mac.Sum(nil)
 }
 
-// generateCode 基于 TOTP 算法生成指定等级的验证码
+// GenerateCode 基于 TOTP 算法生成指定等级的验证码
+// sharedSecret: 共享密钥
+// openid: 用户唯一标识
+// t: 时间
 // level: 1=6位数字, 2=4位数字, 3=8位数字+小写字母
-func generateCode(sharedSecret, openid string, t time.Time, level int) string {
+func GenerateCode(sharedSecret, openid string, t time.Time, level int) string {
 	counter := t.Unix() / codeStep
 	msg := fmt.Sprintf("%s:%d:%d", openid, counter, level)
 	hash := hmacHash(sharedSecret, msg)
@@ -59,26 +62,26 @@ func generateCode(sharedSecret, openid string, t time.Time, level int) string {
 	}
 }
 
-// verifyCode 验证 code 是否匹配 openid
-func verifyCode(sharedSecret, openid, code string, level int) bool {
+// VerifyCode 验证 code 是否匹配 openid
+func VerifyCode(sharedSecret, openid, code string, level int) bool {
 	now := time.Now()
 	for skew := -codeSkew; skew <= codeSkew; skew++ {
 		t := now.Add(time.Duration(skew) * codeStep * time.Second)
-		if generateCode(sharedSecret, openid, t, level) == code {
+		if GenerateCode(sharedSecret, openid, t, level) == code {
 			return true
 		}
 	}
 	return false
 }
 
-// getExpireTime 返回当前时间窗口的过期时间戳（毫秒）
-func getExpireTime(t time.Time) int64 {
+// GetExpireTime 返回当前时间窗口的过期时间戳（毫秒）
+func GetExpireTime(t time.Time) int64 {
 	counter := t.Unix() / codeStep
 	expireUnix := (counter + 1) * codeStep
 	return expireUnix * 1000
 }
 
-// isValidCodeLevel 检查验证码等级是否合法
-func isValidCodeLevel(level int) bool {
+// IsValidCodeLevel 检查验证码等级是否合法
+func IsValidCodeLevel(level int) bool {
 	return level >= codeLevel1 && level <= codeLevel3
 }
