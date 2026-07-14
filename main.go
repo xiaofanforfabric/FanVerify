@@ -49,6 +49,7 @@ func main() {
 	mux.HandleFunc("/openapi/genqrcode", handlers.CorsMiddleware(handlers.AccessTokenMiddleware(handlers.HandleGenerateQRCode())))
 	mux.HandleFunc("/openapi/seeotp", handlers.CorsMiddleware(handlers.AccessTokenMiddleware(handlers.HandleSeeOTP())))
 	mux.HandleFunc("/openapi/user_verify", handlers.CorsMiddleware(handlers.AccessTokenMiddleware(handlers.HandleUserVerify())))
+	mux.HandleFunc("/openapi/getuserdata", handlers.CorsMiddleware(handlers.AccessTokenMiddleware(handlers.HandleGetUserData())))
 
 	// Debug 路由
 	if debugMode {

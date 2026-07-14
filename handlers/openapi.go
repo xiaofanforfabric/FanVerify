@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/skip2/go-qrcode"
@@ -243,6 +245,106 @@ func HandleUserVerify() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
 		log.Printf("✅ 用户验证成功: UID=%d, Level=%d", uid, level)
+	}
+}
+
+// GetUserDataRequest 获取用户数据请求
+type GetUserDataRequest struct {
+	AccessToken string `json:"accesstoken"`
+	UID         string `json:"uid"`
+}
+
+// HandleGetUserData 获取已验证用户的数据
+func HandleGetUserData() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			w.Write([]byte(`{"code":405}`))
+			return
+		}
+
+		var req GetUserDataRequest
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"code":400}`))
+			return
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"code":400}`))
+			return
+		}
+
+		if req.AccessToken == "" || req.UID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"code":400}`))
+			return
+		}
+
+		// 查询 devdata 表中的 PUID 字段
+		var puid string
+		err = db.QueryRow("SELECT PUID FROM devdata WHERE devaccesstoken = ?", req.AccessToken).Scan(&puid)
+		if err == sql.ErrNoRows {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"code":403}`))
+			log.Printf("❌ 获取用户数据失败: AccessToken 不存在")
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"code":500}`))
+			log.Printf("❌ 查询 devdata 失败: %v", err)
+			return
+		}
+
+		// 检查 PUID 中是否包含请求的 UID
+		if !strings.Contains(puid, req.UID) {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"code":403}`))
+			log.Printf("❌ 获取用户数据失败: UID=%s 未在 PUID 中", req.UID)
+			return
+		}
+
+		// 将 UID 转换为整数
+		uid, err := strconv.Atoi(req.UID)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"code":400}`))
+			return
+		}
+
+		// 查询用户数据
+		var level int
+		var regTime, tag string
+		err = db.QueryRow("SELECT level, reg_time, tag FROM userdata WHERE UID = ?", uid).Scan(&level, &regTime, &tag)
+		if err == sql.ErrNoRows {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"code":404}`))
+			log.Printf("❌ 用户不存在: UID=%d", uid)
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"code":500}`))
+			log.Printf("❌ 查询用户数据失败: %v", err)
+			return
+		}
+
+		// 返回用户数据
+		response := map[string]interface{}{
+			"status": "ok",
+			"data": []map[string]interface{}{{
+				"uid":      uid,
+				"level":    strconv.Itoa(level),
+				"reg_time": regTime,
+				"tag":      tag,
+			}},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		log.Printf("✅ 获取用户数据成功: UID=%d", uid)
 	}
 }
 

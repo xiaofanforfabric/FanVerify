@@ -104,14 +104,15 @@ func createSQLiteTables() {
 	devQuery := `CREATE TABLE IF NOT EXISTS devdata (
 		id                INTEGER      NOT NULL PRIMARY KEY AUTOINCREMENT,
 		devaccesstoken    TEXT         NOT NULL UNIQUE,
-		NEL               INTEGER      NOT NULL DEFAULT 1,
+		NEL               INTEGER      NOT NULL DEFAULT 1, -- 要求最低验证等级
 		BUID              INTEGER      NOT NULL DEFAULT 0,
 		BIP               TEXT         DEFAULT NULL,
 		mode              TEXT         NOT NULL DEFAULT 'HTTP',
 		Date_of_Issue     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		SME               TEXT         DEFAULT '',
+		SME               TEXT         DEFAULT '', -- 业务描述
 		status            TEXT         NOT NULL DEFAULT 'wait',
-		NOV               INTEGER      NOT NULL DEFAULT 0,
+		NOV               INTEGER      NOT NULL DEFAULT 0, -- 合法的成功验证测试
+		PUID              TEXT         DEFAULT '', -- 已成功验证的用户UID
 		tmp_ip            TEXT         DEFAULT '',
 		tmp_ip_lost_time  TEXT         DEFAULT ''
 	)`
@@ -164,14 +165,15 @@ func createMySQLTables() {
 	devQuery := `CREATE TABLE IF NOT EXISTS devdata (
 		id                INT          NOT NULL PRIMARY KEY AUTO_INCREMENT,
 		devaccesstoken    VARCHAR(128) NOT NULL UNIQUE,
-		NEL               INT          NOT NULL DEFAULT 1,
+		NEL               INT          NOT NULL DEFAULT 1, -- 要求最低验证等级
 		BUID              INT          NOT NULL DEFAULT 0,
 		BIP               VARCHAR(64)  DEFAULT NULL,
 		mode              VARCHAR(10)  NOT NULL DEFAULT 'HTTP',
 		Date_of_Issue     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		SME               TEXT,
+		SME               TEXT, -- 业务描述
 		status            VARCHAR(10)  NOT NULL DEFAULT 'wait',
-		NOV               INT          NOT NULL DEFAULT 0,
+		NOV               INT          NOT NULL DEFAULT 0, -- 合法的成功验证测试
+		PUID              TEXT, -- 已成功验证的用户UID
 		tmp_ip            VARCHAR(64)  DEFAULT '',
 		tmp_ip_lost_time  VARCHAR(20)  DEFAULT '',
 		INDEX idx_devaccesstoken (devaccesstoken),
