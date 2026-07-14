@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -309,7 +310,8 @@ func HandleOTPAPI(appID, secret string) http.HandlerFunc {
 
 		var lostdate string
 		var existingUID int
-		err = db.QueryRow("SELECT lostdate, UID FROM otpdata WHERE otp = ?", req.OTP).Scan(&lostdate, &existingUID)
+		var devAccessToken string
+		err = db.QueryRow("SELECT lostdate, UID, devaccesstoken FROM otpdata WHERE otp = ?", req.OTP).Scan(&lostdate, &existingUID, &devAccessToken)
 		if err == sql.ErrNoRows {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"code":404}`))
@@ -345,6 +347,25 @@ func HandleOTPAPI(appID, secret string) http.HandlerFunc {
 			w.Write([]byte(`{"code":404}`))
 			log.Printf("❌ OTP API: 绑定失败 %v", err)
 			return
+		}
+
+		// 更新开发者的 PUID 字段
+		if devAccessToken != "" {
+			var currentPUID string
+			err = db.QueryRow("SELECT PUID FROM devdata WHERE devaccesstoken = ?", devAccessToken).Scan(&currentPUID)
+			if err == nil {
+				// 构造新的 PUID：检查是否已存在
+				newUID := fmt.Sprintf("%d", user.UID)
+				if !strings.Contains(currentPUID, newUID) {
+					if currentPUID == "" {
+						currentPUID = newUID
+					} else {
+						currentPUID = currentPUID + ";" + newUID
+					}
+					db.Exec("UPDATE devdata SET PUID = ? WHERE devaccesstoken = ?", currentPUID, devAccessToken)
+					log.Printf("✅ 更新 PUID: %s, 添加 UID=%d", devAccessToken, user.UID)
+				}
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")

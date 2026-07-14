@@ -245,6 +245,26 @@ func HandleUserVerify() http.HandlerFunc {
 			}},
 		}
 
+		// 验证成功，更新开发者的 PUID
+		accessToken := r.URL.Query().Get("accesstoken")
+		if accessToken != "" {
+			var currentPUID string
+			err = db.QueryRow("SELECT PUID FROM devdata WHERE devaccesstoken = ?", accessToken).Scan(&currentPUID)
+			if err == nil {
+				// 构造新的 PUID：检查是否已存在
+				newUID := strconv.Itoa(uid)
+				if !strings.Contains(currentPUID, newUID) {
+					if currentPUID == "" {
+						currentPUID = newUID
+					} else {
+						currentPUID = currentPUID + ";" + newUID
+					}
+					db.Exec("UPDATE devdata SET PUID = ? WHERE devaccesstoken = ?", currentPUID, accessToken)
+					log.Printf("✅ 更新 PUID: %s, 添加 UID=%d", accessToken, uid)
+				}
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
 		log.Printf("✅ 用户验证成功: UID=%d, Level=%d", uid, level)
