@@ -30,10 +30,13 @@ func HandleGenerateOTP() http.HandlerFunc {
 			return
 		}
 
+		// 获取 accesstoken（中间件已验证）
+		accessToken := r.URL.Query().Get("accesstoken")
+
 		otp := generateOTP(16)
 		lostdate := fmt.Sprintf("%d", time.Now().Add(150*time.Second).UnixMilli())
 
-		_, err := db.Exec("INSERT INTO otpdata (otp, lostdate, UID, band_time) VALUES (?, ?, 0, '')", otp, lostdate)
+		_, err := db.Exec("INSERT INTO otpdata (otp, lostdate, UID, band_time, devaccesstoken) VALUES (?, ?, 0, '', ?)", otp, lostdate, accessToken)
 		if err != nil {
 			log.Printf("❌ 写入 OTP 失败: %v", err)
 			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "生成失败"})

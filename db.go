@@ -94,7 +94,8 @@ func createSQLiteTables() {
 		otp       TEXT NOT NULL PRIMARY KEY,
 		lostdate  TEXT NOT NULL,
 		UID       INTEGER DEFAULT 0,
-		band_time TEXT DEFAULT ''
+		band_time TEXT DEFAULT '',
+		devaccesstoken TEXT DEFAULT '' -- 发起 OTP 请求的开发者令牌
 	)`
 	if _, err := db.Exec(otpQuery); err != nil {
 		log.Fatalf("创建 otpdata 表失败: %v", err)
@@ -154,6 +155,7 @@ func createMySQLTables() {
 		lostdate  VARCHAR(20) NOT NULL,
 		UID       INT DEFAULT 0,
 		band_time VARCHAR(20) DEFAULT '',
+		devaccesstoken VARCHAR(128) DEFAULT '', -- 发起 OTP 请求的开发者令牌
 		INDEX idx_lostdate (lostdate),
 		INDEX idx_uid (UID)
 	)`
