@@ -6,3 +6,10 @@ build.sh
 deploy/*
 fanverify-linux-amd64
 fanverify-linux-deploy.tar.gz
+
+# Web 前端产物
+web/node_modules/
+web/dist/
+web/dist-ssr/
+web/*.local
+web/.env
