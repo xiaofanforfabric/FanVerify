@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -23,9 +25,49 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // AccessTokenMiddleware OpenAPI 访问令牌鉴权中间件
 func AccessTokenMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 从 URL 参数获取 accesstoken
+		// 从 URL 参数或 JSON body 获取 accesstoken
 		accessToken := r.URL.Query().Get("accesstoken")
+		
+		// 如果 URL 参数中没有，尝试从 JSON body 中获取
+		if accessToken == "" && r.Method == http.MethodPost {
+			contentType := r.Header.Get("Content-Type")
+			
+			// 处理 multipart/form-data
+			if strings.Contains(contentType, "multipart/form-data") {
+				if err := r.ParseMultipartForm(32 << 20); err == nil {
+					accessToken = r.FormValue("accesstoken")
+					if accessToken != "" {
+						log.Printf("从 form-data 获取到 accesstoken: %s", accessToken)
+					}
+				}
+			} else if strings.Contains(contentType, "application/x-www-form-urlencoded") {
+				// 处理 application/x-www-form-urlencoded
+				if err := r.ParseForm(); err == nil {
+					accessToken = r.FormValue("accesstoken")
+					if accessToken != "" {
+						log.Printf("从 form 获取到 accesstoken: %s", accessToken)
+					}
+				}
+			} else {
+				// 处理 application/json
+			var bodyData map[string]interface{}
+			if body, err := io.ReadAll(r.Body); err == nil {
+				if err := json.Unmarshal(body, &bodyData); err == nil {
+					if token, ok := bodyData["accesstoken"].(string); ok {
+						accessToken = token
+						log.Printf("从 JSON body 获取到 accesstoken: %s", token)
+					}
+				} else {
+					log.Printf("JSON 解析失败: %v, body: %s", err, string(body))
+				}
+				// 重新填充 body 供后续处理使用
+				r.Body = io.NopCloser(strings.NewReader(string(body)))
+			}
+			}
+		}
+		
 		if accessToken == "" {
+			log.Printf("❌ 鉴权失败: accesstoken 为空")
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error":"Unauthorized"}`))
 			return

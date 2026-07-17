@@ -121,6 +121,20 @@ func createSQLiteTables() {
 		log.Fatalf("创建 devdata 表失败: %v", err)
 	}
 
+	// 创建标签表
+	tagQuery := `CREATE TABLE IF NOT EXISTS tagdata (
+		id         INTEGER      NOT NULL PRIMARY KEY AUTOINCREMENT,
+		tag        TEXT         NOT NULL,
+		from_dev   TEXT         NOT NULL, -- devaccesstoken
+		tuid       INTEGER      NOT NULL, -- 给谁打的标签
+		make_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		status     TEXT         NOT NULL DEFAULT 'ok', -- ok 或 Revoke
+		message    TEXT         DEFAULT '' -- 为什么打的
+	)`
+	if _, err := db.Exec(tagQuery); err != nil {
+		log.Fatalf("创建 tagdata 表失败: %v", err)
+	}
+
 	// UID 从 100000 开始
 	db.Exec("DELETE FROM sqlite_sequence WHERE name='userdata'")
 	db.Exec("INSERT INTO sqlite_sequence(name, seq) VALUES('userdata', 99999)")
@@ -128,6 +142,12 @@ func createSQLiteTables() {
 	// 兼容旧表：尝试添加新增字段（忽略已存在错误）
 	db.Exec("ALTER TABLE userdata ADD COLUMN code_lost_time TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE userdata ADD COLUMN status VARCHAR(8) NOT NULL DEFAULT 'ok'")
+
+	// 兼容 otpdata 表：添加 devaccesstoken 字段
+	db.Exec("ALTER TABLE otpdata ADD COLUMN devaccesstoken TEXT DEFAULT ''")
+
+	// 兼容 devdata 表：添加 PUID 字段
+	db.Exec("ALTER TABLE devdata ADD COLUMN PUID TEXT DEFAULT ''")
 
 	log.Println("✅ 数据表: userdata 就绪 (SQLite, UID起始 100000)")
 }
@@ -186,9 +206,32 @@ func createMySQLTables() {
 		log.Fatalf("创建 devdata 表失败: %v", err)
 	}
 
+	// 创建标签表
+	tagQuery := `CREATE TABLE IF NOT EXISTS tagdata (
+		id         INT          NOT NULL PRIMARY KEY AUTO_INCREMENT,
+		tag        VARCHAR(128) NOT NULL,
+		from_dev   VARCHAR(128) NOT NULL, -- devaccesstoken
+		tuid       INT          NOT NULL, -- 给谁打的标签
+		make_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		status     VARCHAR(10)  NOT NULL DEFAULT 'ok', -- ok 或 Revoke
+		message    TEXT, -- 为什么打的
+		INDEX idx_from_dev (from_dev),
+		INDEX idx_tuid (tuid),
+		INDEX idx_status (status)
+	)`
+	if _, err := db.Exec(tagQuery); err != nil {
+		log.Fatalf("创建 tagdata 表失败: %v", err)
+	}
+
 	// 兼容旧表：尝试添加新增字段
 	db.Exec("ALTER TABLE userdata ADD COLUMN code_lost_time TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE userdata ADD COLUMN status VARCHAR(8) NOT NULL DEFAULT 'ok'")
+
+	// 兼容 otpdata 表：添加 devaccesstoken 字段
+	db.Exec("ALTER TABLE otpdata ADD COLUMN devaccesstoken VARCHAR(128) DEFAULT ''")
+
+	// 兼容 devdata 表：添加 PUID 字段
+	db.Exec("ALTER TABLE devdata ADD COLUMN PUID TEXT")
 
 	// 检查并修复 otpdata 表结构
 	var columnCount int

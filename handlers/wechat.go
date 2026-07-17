@@ -351,18 +351,22 @@ func HandleOTPAPI(appID, secret string) http.HandlerFunc {
 
 		// 更新开发者的 PUID 字段
 		if devAccessToken != "" {
-			var currentPUID string
+			var currentPUID sql.NullString
 			err = db.QueryRow("SELECT PUID FROM devdata WHERE devaccesstoken = ?", devAccessToken).Scan(&currentPUID)
 			if err == nil {
+				puidValue := ""
+				if currentPUID.Valid {
+					puidValue = currentPUID.String
+				}
 				// 构造新的 PUID：检查是否已存在
 				newUID := fmt.Sprintf("%d", user.UID)
-				if !strings.Contains(currentPUID, newUID) {
-					if currentPUID == "" {
-						currentPUID = newUID
+				if !strings.Contains(puidValue, newUID) {
+					if puidValue == "" {
+						puidValue = newUID
 					} else {
-						currentPUID = currentPUID + ";" + newUID
+						puidValue = puidValue + ";" + newUID
 					}
-					db.Exec("UPDATE devdata SET PUID = ? WHERE devaccesstoken = ?", currentPUID, devAccessToken)
+					db.Exec("UPDATE devdata SET PUID = ? WHERE devaccesstoken = ?", puidValue, devAccessToken)
 					log.Printf("✅ 更新 PUID: %s, 添加 UID=%d", devAccessToken, user.UID)
 				}
 			}

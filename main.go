@@ -50,6 +50,8 @@ func main() {
 	mux.HandleFunc("/openapi/seeotp", handlers.CorsMiddleware(handlers.AccessTokenMiddleware(handlers.HandleSeeOTP())))
 	mux.HandleFunc("/openapi/user_verify", handlers.CorsMiddleware(handlers.AccessTokenMiddleware(handlers.HandleUserVerify())))
 	mux.HandleFunc("/openapi/getuserdata", handlers.CorsMiddleware(handlers.AccessTokenMiddleware(handlers.HandleGetUserData())))
+	mux.HandleFunc("/openapi/devinfo", handlers.CorsMiddleware(handlers.AccessTokenMiddleware(handlers.HandleDevInfo())))
+	mux.HandleFunc("/openapi/tag", handlers.CorsMiddleware(handlers.AccessTokenMiddleware(handlers.HandleTag())))
 
 	// Debug 路由
 	if debugMode {
