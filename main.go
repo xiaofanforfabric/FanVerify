@@ -68,6 +68,9 @@ func main() {
 	// 账单查询接口（需人机验证）
 	mux.HandleFunc("/api/getmoneylist", handlers.CorsMiddleware(handlers.CaptchaMiddleware(handlers.HandleGetMoneyList())))
 
+	// 启动账单定时任务（每月1日自动拉取）
+	handlers.StartBillScheduler()
+
 	addr := ":" + port
 	log.Printf("FanVerify 后端服务启动，监听端口 %s", port)
 	log.Printf("API 地址: http://localhost%s/api/wx/code/openid", addr)

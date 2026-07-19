@@ -10,15 +10,23 @@ const billData = ref<{
   total_cost: number
   total_pay_amount: number
   item_count: number
-  month: string
-  items: {
-    business_name: string
-    resource_name: string
-    resource_id: string
-    cost: number
-    pay_amount: number
-    fee_begin_time: string
-    fee_end_time: string
+  month_count: number
+  months: string[]
+  monthly: {
+    total_cost: number
+    total_pay_amount: number
+    item_count: number
+    month: string
+    items: {
+      business_name: string
+      resource_name: string
+      resource_id: string
+      cost: number
+      pay_amount: number
+      fee_begin_time: string
+      fee_end_time: string
+      month: string
+    }[]
   }[]
 } | null>(null)
 
@@ -285,8 +293,12 @@ onMounted(() => {
       <!-- 账单数据 -->
       <div v-else-if="step === 'done' && billData" class="bill-container">
         <div class="bill-header">
-          <div class="bill-period">{{ monthLabel(billData.month) }} 账单</div>
+          <div class="bill-period">累计运营成本</div>
           <div class="bill-summary">
+            <div class="summary-item">
+              <span class="summary-label">覆盖月份</span>
+              <span class="summary-value">{{ billData.month_count }} 个月</span>
+            </div>
             <div class="summary-item">
               <span class="summary-label">原价总成本</span>
               <span class="summary-value summary-original">¥{{ formatMoney(billData.total_cost) }}</span>
@@ -295,16 +307,15 @@ onMounted(() => {
               <span class="summary-label">实际支付</span>
               <span class="summary-value">¥{{ formatMoney(billData.total_pay_amount) }}</span>
             </div>
-            <div class="summary-item">
-              <span class="summary-label">服务项目</span>
-              <span class="summary-value">{{ billData.item_count }} 项</span>
-            </div>
           </div>
         </div>
 
-        <!-- 服务器资源 -->
-        <div class="bill-section">
-          <h3 class="section-title">☁️ 服务器资源</h3>
+        <!-- 逐月展示 -->
+        <div v-for="monthly in billData.monthly" :key="monthly.month" class="bill-section">
+          <h3 class="section-title">
+            ☁️ {{ monthLabel(monthly.month) }}
+            <span class="section-sub">¥{{ formatMoney(monthly.total_pay_amount) }}</span>
+          </h3>
           <div class="bill-table">
             <div class="table-header">
               <span class="col-name">资源名称</span>
@@ -312,7 +323,7 @@ onMounted(() => {
               <span class="col-cost">实付金额</span>
             </div>
             <div
-              v-for="item in billData.items"
+              v-for="item in monthly.items"
               :key="item.resource_id"
               class="table-row"
             >
@@ -324,8 +335,7 @@ onMounted(() => {
         </div>
 
         <p class="bill-footnote">
-          数据来源：腾讯云账单 · {{ monthLabel(billData.month) }} ·
-          仅展示服务器与域名相关费用 · 实际成本以腾讯云账单为准
+          数据来源：腾讯云账单 · 仅展示服务器与域名相关费用 · 实际成本以腾讯云账单为准
         </p>
       </div>
     </div>
@@ -528,6 +538,15 @@ onMounted(() => {
   margin: 0;
   border-bottom: 1px solid #f3f4f6;
   color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-sub {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #4f46e5;
 }
 
 .bill-table {
