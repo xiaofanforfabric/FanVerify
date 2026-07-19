@@ -32,7 +32,7 @@ const billData = ref<{
     total_count: number
     total_amount: number
     list: { name: string; avatar: string; amount: number; time: string }[]
-  } | null
+  }
 } | null>(null)
 
 // 获取当前月份
