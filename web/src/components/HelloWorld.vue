@@ -35,30 +35,58 @@ const features = [
   {
     icon: '🔐',
     title: 'TOTP 动态验证',
-    desc: '基于时间的一次性密码，150秒自动刷新'
+    desc: '基于时间的一次性密码算法，150秒自动刷新，支持多级安全策略',
+    points: ['HMAC-SHA1 加密算法', '150 秒时间窗口', '3 级验证强度可调']
   },
   {
     icon: '📱',
     title: '微信小程序',
-    desc: '原生小程序开发，流畅的用户体验'
+    desc: '原生小程序开发，即开即用，无需下载安装，扫码即可完成鉴权',
+    points: ['微信原生框架', '扫码即鉴权', '零安装成本']
   },
   {
-    icon: '⚡',
-    title: '快速响应',
-    desc: 'Go 后端高性能处理，毫秒级响应'
+    icon: '🔌',
+    title: 'OpenAPI 接口',
+    desc: '类似 authMC 插件，但用微信小程序动态验证码替代密码登录，安全便捷',
+    points: ['博客/论坛快速接入', 'MC 服务端插件支持', 'Token + IP 双重鉴权']
   },
   {
     icon: '🛡️',
-    title: '安全可靠',
-    desc: 'HMAC-SHA1 加密，多重安全防护'
+    title: '多重安全防护',
+    desc: '从传输到存储全方位安全保障，限流防刷、过期失效、权限分级',
+    points: ['接口限流防刷', '验证码过期失效', '用户数据权限隔离']
   }
 ]
 
 const techStack = [
-  { name: '微信小程序', desc: '前端应用' },
-  { name: 'Go 1.26', desc: '后端服务' },
-  { name: 'Vue 3 + TS', desc: 'Web 管理' },
-  { name: 'MySQL/SQLite', desc: '数据存储' }
+  { name: '微信小程序', desc: '前端应用', detail: '原生框架，即开即用，零安装成本' },
+  { name: 'Go 1.26', desc: '后端服务', detail: '高性能编译型语言，毫秒级并发处理' },
+  { name: 'Vue 3 + TS', desc: 'Web 管理', detail: '渐进式框架，类型安全，开发体验优秀' },
+  { name: 'MySQL/SQLite', desc: '数据存储', detail: '双数据库支持，开发测试无缝切换' }
+]
+
+const apiDocs = [
+  { icon: '🔑', name: 'OTP申请接口', desc: '生成一次性OTP令牌，用于扫码鉴权场景', doc: 'https://doc.fanverify.cn/485863981e0.md' },
+  { icon: '🖼️', name: 'OTP二维码包装接口', desc: '将OTP包装为标准二维码，方便展示和传播', doc: 'https://doc.fanverify.cn/485907612e0.md' },
+  { icon: '🔄', name: 'OTP轮询接口', desc: '轮询OTP验证状态，5秒间隔防刷限制', doc: 'https://doc.fanverify.cn/485907646e0.md', tag: '5s限频' },
+  { icon: '✅', name: '用户验证接口', desc: '验证用户动态验证码，完成身份确认', doc: 'https://doc.fanverify.cn/486499010e0.md' },
+  { icon: '📋', name: '获取用户数据', desc: '获取已验证用户的信息，权限隔离防滥用', doc: 'https://doc.fanverify.cn/487111702e0.md' },
+  { icon: 'ℹ️', name: '开发者令牌信息', desc: '查询开发者自身令牌的统计和状态信息', doc: 'https://doc.fanverify.cn/487762584e0.md' },
+  { icon: '🏷️', name: '用户风险标签接口', desc: '给用户打风险标签，需要消耗有效验证次数', doc: 'https://doc.fanverify.cn/488453042e0.md' }
+]
+
+const useCases = [
+  { icon: '📝', title: '个人博客用户登录', desc: '替代传统密码登录，用户用微信小程序获取动态验证码即可登录你的博客' },
+  { icon: '💬', title: '论坛会员登录', desc: '论坛接入 FanVerify，会员凭微信 2FA 动态码登录，告别密码泄露风险' },
+  { icon: '⛏️', title: 'Minecraft 服务器登录', desc: '类似 authMC 插件，但用微信小程序动态验证码代替密码输入，防破解防盗号' },
+  { icon: '🔐', title: '任何网站/应用的登录认证', desc: '通用的 2FA 登录方案，只需对接 OpenAPI 即可用微信动态码替代密码' }
+]
+
+const flowSteps = [
+  { step: '1', title: '用户请求登录', desc: '用户在博客/论坛/MC 服务器发起登录请求' },
+  { step: '2', title: '生成 OTP 二维码', desc: '服务端调用 OpenAPI 生成一次性 OTP 令牌并展示二维码' },
+  { step: '3', title: '微信扫码获取验证码', desc: '用户打开微信小程序，扫码后获取 150 秒有效的动态验证码' },
+  { step: '4', title: '输入动态码完成登录', desc: '用户将验证码提交到网站/MC 服务器，完成身份验证并登录' }
 ]
 </script>
 
@@ -78,8 +106,8 @@ const techStack = [
           <h1 class="brand-name">FanVerify</h1>
         </div>
         
-        <p class="tagline">微信小程序2FA鉴权</p>
-        <p class="subtitle">基于微信小程序的双因素身份验证解决方案</p>
+        <p class="tagline">个人博客 · 论坛 · Minecraft 服务器</p>
+        <p class="subtitle">用微信小程序动态验证码替代密码登录——像 authMC 一样简单，比密码更安全</p>
         
         <!-- Demo Card -->
         <div class="demo-card">
@@ -133,6 +161,9 @@ const techStack = [
           <div class="feature-icon">{{ feature.icon }}</div>
           <h3 class="feature-title">{{ feature.title }}</h3>
           <p class="feature-desc">{{ feature.desc }}</p>
+          <ul class="feature-points">
+            <li v-for="point in feature.points" :key="point">{{ point }}</li>
+          </ul>
         </div>
       </div>
     </section>
@@ -145,6 +176,57 @@ const techStack = [
         <div v-for="tech in techStack" :key="tech.name" class="tech-item">
           <div class="tech-name">{{ tech.name }}</div>
           <div class="tech-desc">{{ tech.desc }}</div>
+          <div class="tech-detail">{{ tech.detail }}</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- API Overview Section -->
+    <section class="api-overview">
+      <h2 class="section-title">API 概览</h2>
+      <p class="section-subtitle">FanVerify 提供以下 OpenAPI 接口，方便第三方开发者集成</p>
+      
+      <div class="api-table">
+        <a v-for="api in apiDocs" :key="api.name" :href="api.doc" target="_blank" rel="noopener" class="api-row">
+          <span class="api-row-icon">{{ api.icon }}</span>
+          <div class="api-row-body">
+            <div class="api-row-header">
+              <span class="api-row-name">{{ api.name }}</span>
+              <span v-if="api.tag" class="api-row-tag">{{ api.tag }}</span>
+            </div>
+            <span class="api-row-desc">{{ api.desc }}</span>
+          </div>
+          <span class="api-row-arrow">→</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- Flow Section -->
+    <section class="flow-section">
+      <h2 class="section-title">验证流程</h2>
+      <p class="section-subtitle">一次完整的双因素身份验证过程</p>
+      
+      <div class="flow-steps">
+        <div v-for="(item, idx) in flowSteps" :key="item.step" class="flow-step">
+          <div class="flow-step-number">{{ item.step }}</div>
+          <div class="flow-step-body">
+            <h3 class="flow-step-title">{{ item.title }}</h3>
+            <p class="flow-step-desc">{{ item.desc }}</p>
+          </div>
+          <div v-if="idx < flowSteps.length - 1" class="flow-step-line"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Use Cases Section -->
+    <section class="use-cases">
+      <h2 class="section-title">适用场景</h2>
+      
+      <div class="cases-grid">
+        <div v-for="item in useCases" :key="item.title" class="case-card">
+          <div class="case-icon">{{ item.icon }}</div>
+          <h3 class="case-title">{{ item.title }}</h3>
+          <p class="case-desc">{{ item.desc }}</p>
         </div>
       </div>
     </section>
@@ -642,6 +724,240 @@ const techStack = [
   color: #6b7280;
 }
 
+.tech-detail {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin-top: 0.5rem;
+}
+
+/* Feature Points */
+.feature-points {
+  list-style: none;
+  margin-top: 1rem;
+  padding: 0;
+  text-align: left;
+}
+
+.feature-points li {
+  position: relative;
+  padding-left: 1.25rem;
+  font-size: 0.8125rem;
+  color: #6b7280;
+  line-height: 1.8;
+}
+
+.feature-points li::before {
+  content: '▸';
+  position: absolute;
+  left: 0;
+  color: #6366f1;
+}
+
+/* Section Subtitle */
+.section-subtitle {
+  text-align: center;
+  font-size: 1.0625rem;
+  color: #6b7280;
+  margin-top: -2rem;
+  margin-bottom: 3rem;
+}
+
+/* API Overview */
+.api-overview {
+  padding: 6rem 2rem;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.api-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.api-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.api-row:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.08);
+  transform: translateX(4px);
+}
+
+.api-row-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.api-row-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.api-row-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.125rem;
+}
+
+.api-row-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.api-row-tag {
+  font-size: 0.625rem;
+  font-weight: 600;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.api-row-desc {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  display: block;
+}
+
+.api-row-arrow {
+  font-size: 1rem;
+  color: #c7d2fe;
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+
+.api-row:hover .api-row-arrow {
+  transform: translateX(3px);
+  color: #6366f1;
+}
+
+/* Flow Section */
+.flow-section {
+  padding: 6rem 2rem;
+  background: #f9fafb;
+}
+
+.flow-steps {
+  max-width: 600px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.flow-step {
+  display: flex;
+  gap: 1.25rem;
+  position: relative;
+  padding-bottom: 2rem;
+}
+
+.flow-step:last-child {
+  padding-bottom: 0;
+}
+
+.flow-step-number {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.flow-step-body {
+  flex: 1;
+  padding-top: 0.375rem;
+}
+
+.flow-step-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 0.25rem;
+}
+
+.flow-step-desc {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+.flow-step-line {
+  position: absolute;
+  left: 17px;
+  top: 36px;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, #c7d2fe, #e5e7eb);
+}
+
+/* Use Cases */
+.use-cases {
+  padding: 6rem 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.cases-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+}
+
+.case-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+  transition: all 0.3s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.case-card:hover {
+  transform: translateY(-4px);
+  border-color: #c7d2fe;
+  box-shadow: 0 8px 24px rgba(79, 70, 229, 0.1);
+}
+
+.case-icon {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.case-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 0.5rem;
+}
+
+.case-desc {
+  font-size: 0.875rem;
+  color: #6b7280;
+  line-height: 1.6;
+}
+
 /* Architecture */
 .architecture {
   padding: 6rem 2rem;
@@ -947,6 +1263,15 @@ const techStack = [
   
   .group-cards {
     grid-template-columns: 1fr;
+  }
+  
+  .cases-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .section-subtitle {
+    font-size: 0.9375rem;
+    padding: 0 1rem;
   }
   
   .footer-content {
