@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -12,7 +14,7 @@ import (
 func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -22,16 +24,94 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// CaptchaVerifyRequest CAPTCHA 验证请求
+type CaptchaVerifyRequest struct {
+	Secret   string `json:"secret"`
+	Response string `json:"response"`
+}
+
+// CaptchaVerifyResponse CAPTCHA 验证响应
+type CaptchaVerifyResponse struct {
+	Success bool `json:"success"`
+}
+
+// CaptchaMiddleware 人机验证中间件
+func CaptchaMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.URL.Query().Get("captcha_token")
+		if token == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"code":401,"error":"缺少 captcha_token 参数"}`))
+			return
+		}
+
+		secret := os.Getenv("CAP_SECRET")
+		if secret == "" {
+			log.Println("❌ 环境变量 CAP_SECRET 未设置")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"code":500,"error":"服务器配置错误"}`))
+			return
+		}
+
+		ok, err := verifyCaptcha(secret, token)
+		if err != nil {
+			log.Printf("❌ 人机验证请求失败: %v", err)
+			w.WriteHeader(http.StatusBadGateway)
+			w.Write([]byte(`{"code":502,"error":"人机验证服务异常"}`))
+			return
+		}
+		if !ok {
+			log.Println("❌ 人机验证未通过")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"code":403,"error":"人机验证未通过，请重新验证"}`))
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+// verifyCaptcha 调用 CAPTCHA 验证接口
+func verifyCaptcha(secret, token string) (bool, error) {
+	bodyData := CaptchaVerifyRequest{
+		Secret:   secret,
+		Response: token,
+	}
+	bodyBytes, err := json.Marshal(bodyData)
+	if err != nil {
+		return false, err
+	}
+
+	resp, err := http.Post("https://cap.fanverify.cn/siteverify",
+		"application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	var result CaptchaVerifyResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return false, err
+	}
+
+	return result.Success, nil
+}
+
 // AccessTokenMiddleware OpenAPI 访问令牌鉴权中间件
 func AccessTokenMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 从 URL 参数或 JSON body 获取 accesstoken
 		accessToken := r.URL.Query().Get("accesstoken")
-		
+
 		// 如果 URL 参数中没有，尝试从 JSON body 中获取
 		if accessToken == "" && r.Method == http.MethodPost {
 			contentType := r.Header.Get("Content-Type")
-			
+
 			// 处理 multipart/form-data
 			if strings.Contains(contentType, "multipart/form-data") {
 				if err := r.ParseMultipartForm(32 << 20); err == nil {
@@ -50,22 +130,22 @@ func AccessTokenMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				}
 			} else {
 				// 处理 application/json
-			var bodyData map[string]interface{}
-			if body, err := io.ReadAll(r.Body); err == nil {
-				if err := json.Unmarshal(body, &bodyData); err == nil {
-					if token, ok := bodyData["accesstoken"].(string); ok {
-						accessToken = token
-						log.Printf("从 JSON body 获取到 accesstoken: %s", token)
+				var bodyData map[string]interface{}
+				if body, err := io.ReadAll(r.Body); err == nil {
+					if err := json.Unmarshal(body, &bodyData); err == nil {
+						if token, ok := bodyData["accesstoken"].(string); ok {
+							accessToken = token
+							log.Printf("从 JSON body 获取到 accesstoken: %s", token)
+						}
+					} else {
+						log.Printf("JSON 解析失败: %v, body: %s", err, string(body))
 					}
-				} else {
-					log.Printf("JSON 解析失败: %v, body: %s", err, string(body))
+					// 重新填充 body 供后续处理使用
+					r.Body = io.NopCloser(strings.NewReader(string(body)))
 				}
-				// 重新填充 body 供后续处理使用
-				r.Body = io.NopCloser(strings.NewReader(string(body)))
-			}
 			}
 		}
-		
+
 		if accessToken == "" {
 			log.Printf("❌ 鉴权失败: accesstoken 为空")
 			w.WriteHeader(http.StatusUnauthorized)

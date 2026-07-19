@@ -65,6 +65,9 @@ func main() {
 		mux.HandleFunc("/api/debug/", handlers.Handle404Debug())
 	}
 
+	// 账单查询接口（需人机验证）
+	mux.HandleFunc("/api/getmoneylist", handlers.CorsMiddleware(handlers.CaptchaMiddleware(handlers.HandleGetMoneyList())))
+
 	addr := ":" + port
 	log.Printf("FanVerify 后端服务启动，监听端口 %s", port)
 	log.Printf("API 地址: http://localhost%s/api/wx/code/openid", addr)
