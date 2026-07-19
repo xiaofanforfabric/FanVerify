@@ -43,158 +43,53 @@ function loadCapScript(): Promise<void> {
     const script = document.createElement('script')
     script.src = 'https://cdn.jsdelivr.net/npm/@cap.js/widget'
     script.async = true
-    script.onload = () => {
-      // 脚本加载后等待一帧让 widget 完成初始化
-      requestAnimationFrame(() => resolve())
-    }
+    script.onload = () => resolve()
     document.head.appendChild(script)
   })
 }
 
-// 无感静默验证
-async function silentCaptcha() {
-  step.value = 'captcha'
-  console.log('[Cap] 开始静默验证流程')
-
-  // 等待 widget 元素出现在 DOM 中
-  const widget = await new Promise<any>((resolve) => {
-    const check = () => {
-      const el = document.querySelector('cap-widget')
-      if (el) { console.log('[Cap] ✅ widget 元素已找到', el); resolve(el) }
-      else setTimeout(check, 50)
-    }
-    check()
-  })
-
-  // 加载 Cap.js 脚本
+// 直接拦截 redeem 网络请求获取 token
+async function initCaptcha() {
   await loadCapScript()
-  console.log('[Cap] ✅ Cap.js 脚本已加载')
-
-  // 等待 widget 初始化完成
-  await new Promise<void>((resolve) => setTimeout(resolve, 1000))
-  console.log('[Cap] 已等待 1s 让 widget 初始化')
-
-  // 记录 widget 的所有属性
-  console.log('[Cap] widget 属性:', {
-    token: (widget as any).token,
-    value: (widget as any).value,
-    dataset: { ...widget.dataset },
-    attrs: [...widget.attributes].map(a => `${a.name}=${a.value}`),
-    shadowRoot: !!widget.shadowRoot,
-  })
-
-  // 检查 window.Cap 是否存在（Cap.js 的 API）
-  console.log('[Cap] window.Cap:', (window as any).Cap)
-  if ((window as any).Cap?.widget) {
-    console.log('[Cap] 使用 Cap API 获取 token...')
-    try {
-      const capWidget = (window as any).Cap.widget
-      if (capWidget.getToken) {
-        const t = capWidget.getToken()
-        console.log('[Cap] Cap.getToken():', t)
-        if (t) { fetchBill(t); return }
-      }
-    } catch (e) { console.error('[Cap] Cap API 调用失败:', e) }
-  }
-
-  // Cap.js 在 invisible 模式下会自动验证
-  console.log('[Cap] 调用 widget.verify()...')
-  try { widget.verify?.() } catch (e) { console.log('[Cap] verify 调用结果:', e) }
 
   let resolved = false
-  const done = (token: string, source: string) => {
-    if (resolved) { console.log('[Cap] ⏭ 已处理，跳过'); return }
-    console.log(`[Cap] 🎯 通过 ${source} 获取到 token:`, token.slice(0, 10) + '...')
+  const onToken = (token: string) => {
+    if (resolved) return
     resolved = true
-    clearTimeout(timeoutId)
-    clearInterval(pollTimer)
+    step.value = 'loading'
     fetchBill(token)
   }
-  const fail = (msg: string) => {
-    if (resolved) return
-    console.log('[Cap] ❌ 验证失败:', msg)
-    resolved = true
-    clearTimeout(timeoutId)
-    clearInterval(pollTimer)
-    errorMsg.value = msg
-    step.value = 'error'
-  }
 
-  // 1. 监听所有自定义事件，看看 Cap.js 到底发了什么
-  const allEvents = ['success', 'error', 'cap-success', 'cap-error', 'token', 'complete', 'ready', 'load']
-  allEvents.forEach(name => {
-    widget.addEventListener(name, (e: Event) => {
-      console.log(`[Cap] 📢 事件 "${name}"`, {
-        type: e.type,
-        detail: (e as CustomEvent).detail,
-        target: e.target,
-        currentTarget: e.currentTarget,
-      })
-      const detail = (e as CustomEvent).detail
-      if (detail?.token && typeof detail.token === 'string') {
-        done(detail.token, `事件:${name}`)
-      }
-    })
-  })
-
-  // 2. 在 document 上监听
-  document.addEventListener('success', (e: Event) => {
-    const target = e.target as Element
-    console.log('[Cap] 📢 document 捕获 success', { target: target?.tagName, detail: (e as CustomEvent).detail })
-    if (target?.tagName === 'CAP-WIDGET') {
-      const token = (e as CustomEvent).detail?.token
-      if (token) done(token, 'document.success')
-    }
-  })
-
-  // 3. 拦截 fetch 获取 redeem 的响应（终极方案）
-  const originalFetch = window.fetch
-  window.fetch = async (...args) => {
-    const url = typeof args[0] === 'string' ? args[0] : args[0]?.url
-    const resp = await originalFetch(...args)
-    if (typeof url === 'string' && url.includes('redeem')) {
+  // 拦截 fetch 请求，捕获 redeem 响应中的 token
+  const originalFetch = window.fetch.bind(window)
+  window.fetch = async (input: any, init?: any) => {
+    const resp = await originalFetch(input, init)
+    const url = typeof input === 'string' ? input : input?.url || ''
+    if (url.includes('redeem')) {
       const clone = resp.clone()
       try {
-        const json = await clone.json()
-        console.log('[Cap] 🔥 redeem 响应拦截:', json)
-        if (json.token) done(json.token, 'fetch拦截')
-        if (json.data?.token) done(json.data.token, 'fetch拦截.data')
+        const body = await clone.json()
+        if (body.token) {
+          onToken(body.token)
+        } else if (body.data?.token) {
+          onToken(body.data.token)
+        }
       } catch (_) {}
     }
     return resp
   }
 
-  // 4. 轮询获取 token
-  const pollTimer = setInterval(() => {
+  // 30 秒超时
+  setTimeout(() => {
     if (resolved) return
-    try {
-      const sources = [
-        { val: (widget as any).token, src: 'widget.token' },
-        { val: (widget as any).value, src: 'widget.value' },
-        { val: widget.getAttribute('data-token'), src: 'data-token' },
-        { val: widget.getAttribute('token'), src: 'attr.token' },
-        { val: widget.getAttribute('value'), src: 'attr.value' },
-        { val: (widget as any).response?.token, src: 'widget.response.token' },
-      ]
-      for (const s of sources) {
-        if (s.val && typeof s.val === 'string' && s.val.length > 8) {
-          done(s.val, `轮询:${s.src}`)
-          return
-        }
-      }
-    } catch (_) { /* ignore */ }
-  }, 200)
-
-  // 15 秒超时
-  const timeoutId = setTimeout(() => {
-    console.log('[Cap] ⏰ 超时！最后检查 widget:', {
-      token: (widget as any).token,
-      value: (widget as any).value,
-      attrs: [...widget.attributes].map(a => `${a.name}=${a.value}`),
-    })
-    fail('验证超时，请刷新页面重试')
-  }, 15000)
+    errorMsg.value = '验证超时，请刷新页面重试'
+    step.value = 'error'
+  }, 30000)
 }
+
+onMounted(() => {
+  initCaptcha()
+})
 
 // 获取账单数据
 async function fetchBill(token: string) {
@@ -242,10 +137,9 @@ function monthLabel(month: string): string {
   return `${parts[0]}年${parts[1]}月`
 }
 
-onMounted(() => {
-  // 页面加载后自动开始静默验证
-  setTimeout(() => silentCaptcha(), 500)
-})
+function reloadPage() {
+  window.location.reload()
+}
 </script>
 
 <template>
@@ -257,22 +151,20 @@ onMounted(() => {
       <span class="nav-placeholder"></span>
     </nav>
 
-    <!-- CAPTCHA 阶段（隐藏的验证组件，置于屏幕外保证能正常初始化） -->
-    <div class="captcha-container">
-      <cap-widget
-        data-cap-api-endpoint="https://cap.fanverify.cn/22a34a230e/"
-        data-mode="invisible"
-      ></cap-widget>
-    </div>
+    <!-- Cap.js 验证组件（已内联到验证卡片中） -->
 
     <!-- 内容区 -->
     <div class="money-content">
-      <!-- 验证中 -->
+      <!-- 等待验证 -->
       <div v-if="step === 'captcha'" class="status-card">
         <div class="status-icon">🛡️</div>
-        <h2>正在安全验证...</h2>
-        <p class="status-desc">静默检测中，无需任何操作</p>
-        <div class="spinner"></div>
+        <h2>人机验证</h2>
+        <p class="status-desc">请完成下方验证后查看运营成本数据</p>
+        <div class="captcha-box">
+          <cap-widget
+            data-cap-api-endpoint="https://cap.fanverify.cn/22a34a230e/"
+          ></cap-widget>
+        </div>
       </div>
 
       <!-- 加载中 -->
@@ -287,7 +179,7 @@ onMounted(() => {
         <div class="status-icon">❌</div>
         <h2>加载失败</h2>
         <p class="status-desc">{{ errorMsg }}</p>
-        <button class="btn-retry" @click="silentCaptcha">重新加载</button>
+        <button class="btn-retry" @click="reloadPage">重新加载</button>
       </div>
 
       <!-- 账单数据 -->
@@ -605,14 +497,11 @@ onMounted(() => {
   line-height: 1.6;
 }
 
-/* Cap.js 容器 - 置于屏幕外确保能正常初始化 */
-.captcha-container {
-  position: absolute;
-  left: -9999px;
-  top: 0;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
+/* Cap.js 容器 */
+.captcha-box {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
 }
 
 /* 备案信息 */
