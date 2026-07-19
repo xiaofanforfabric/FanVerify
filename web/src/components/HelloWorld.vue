@@ -298,6 +298,26 @@ const flowSteps = [
       </div>
     </section>
 
+    <!-- Sponsor Section -->
+    <section class="sponsor">
+      <div class="sponsor-card">
+        <div class="sponsor-icon">❤️</div>
+        <h2 class="sponsor-title">为爱发电</h2>
+        <p class="sponsor-desc">
+          FanVerify 是个人纯免费项目，服务器、域名等运营成本均由我一人承担。
+          如果你觉得这个项目对你有帮助，可以自愿赞助支持我，帮助减轻运营压力，
+          让项目能持续稳定地为大家服务。
+        </p>
+        <div class="sponsor-actions">
+          <a class="btn btn-sponsor" href="https://afdian.com/a/xiaofanforfabric" target="_blank" rel="noopener">
+            <span class="sponsor-btn-icon">☕</span>
+            请我喝杯咖啡
+          </a>
+        </div>
+        <p class="sponsor-footnote">赞助纯属自愿，不赞助也不影响任何功能使用 ❤️</p>
+      </div>
+    </section>
+
     <!-- Footer -->
     <footer class="footer">
       <div class="footer-content">
@@ -1237,6 +1257,88 @@ const flowSteps = [
 
 .icp-sep {
   color: #4b5563;
+}
+
+/* Sponsor Section */
+.sponsor {
+  padding: 4rem 2rem;
+  background: linear-gradient(135deg, #faf5ff 0%, #fdf2f8 100%);
+}
+
+.sponsor-card {
+  max-width: 560px;
+  margin: 0 auto;
+  text-align: center;
+  background: #ffffff;
+  border: 1px solid #f3e8ff;
+  border-radius: 20px;
+  padding: 3rem 2.5rem;
+  box-shadow: 0 4px 24px rgba(168, 85, 247, 0.08);
+}
+
+.sponsor-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  animation: heartbeat 1.5s ease-in-out infinite;
+}
+
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  25% { transform: scale(1.1); }
+  50% { transform: scale(1); }
+  75% { transform: scale(1.05); }
+}
+
+.sponsor-title {
+  font-size: 2rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #ec4899, #a855f7);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 1rem;
+}
+
+.sponsor-desc {
+  font-size: 0.9375rem;
+  color: #6b7280;
+  line-height: 1.8;
+  margin-bottom: 1.5rem;
+}
+
+.sponsor-actions {
+  margin-bottom: 1rem;
+}
+
+.btn-sponsor {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 2rem;
+  background: linear-gradient(135deg, #ec4899, #a855f7);
+  color: #fff;
+  border: none;
+  border-radius: 50px;
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.btn-sponsor:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(168, 85, 247, 0.35);
+}
+
+.sponsor-btn-icon {
+  font-size: 1.25rem;
+}
+
+.sponsor-footnote {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  font-style: italic;
 }
 
 /* Responsive */
