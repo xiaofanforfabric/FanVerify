@@ -152,30 +152,55 @@ const techStack = [
     <!-- Architecture Section -->
     <section class="architecture">
       <h2 class="section-title">系统架构</h2>
-      
-      <div class="arch-diagram">
-        <div class="arch-layer">
-          <div class="arch-box frontend">
-            <div class="box-title">前端层</div>
-            <div class="box-content">微信小程序</div>
-          </div>
+
+      <div class="arch-flow">
+        <!-- 前端层 -->
+        <div class="arch-node frontend-node">
+          <div class="node-icon">📱</div>
+          <div class="node-title">前端层</div>
+          <div class="node-desc">微信小程序</div>
         </div>
-        
-        <div class="arch-arrow">↓</div>
-        
-        <div class="arch-layer">
-          <div class="arch-box backend">
-            <div class="box-title">后端层</div>
-            <div class="box-content">Go API Server</div>
-          </div>
+
+        <div class="arch-connector">
+          <div class="connector-line"></div>
+          <div class="connector-arrow">▼</div>
         </div>
-        
-        <div class="arch-arrow">↓</div>
-        
-        <div class="arch-layer">
-          <div class="arch-box database">
-            <div class="box-title">数据层</div>
-            <div class="box-content">MySQL / SQLite</div>
+
+        <!-- 后端 OpenAPI 分组 -->
+        <div class="arch-group">
+          <div class="group-label">后端 OpenAPI</div>
+          <div class="group-cards">
+            <div class="group-card">
+              <div class="card-header">
+                <span class="card-icon">🔐</span>
+                <span class="card-title">OTP 服务</span>
+              </div>
+              <div class="card-items">
+                <div class="card-item">OTP申请接口</div>
+                <div class="card-item">OTP二维码包装接口</div>
+                <div class="card-item">OTP轮询接口 <span class="item-tag">5s</span></div>
+              </div>
+            </div>
+            <div class="group-card">
+              <div class="card-header">
+                <span class="card-icon">✅</span>
+                <span class="card-title">验证服务</span>
+              </div>
+              <div class="card-items">
+                <div class="card-item">用户验证接口</div>
+                <div class="card-item">获取用户数据</div>
+              </div>
+            </div>
+            <div class="group-card">
+              <div class="card-header">
+                <span class="card-icon">⚙️</span>
+                <span class="card-title">管理服务</span>
+              </div>
+              <div class="card-items">
+                <div class="card-item">开发者令牌信息</div>
+                <div class="card-item">用户风险标签接口</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -624,57 +649,142 @@ const techStack = [
   margin: 0 auto;
 }
 
-.arch-diagram {
+.arch-flow {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
 }
 
-.arch-layer {
-  width: 100%;
-  max-width: 400px;
-}
-
-.arch-box {
-  padding: 2rem;
-  border-radius: 12px;
+/* 前端节点 */
+.arch-node {
   text-align: center;
+  padding: 1.5rem 3rem;
+  border-radius: 14px;
   border: 2px solid;
+  min-width: 200px;
 }
 
-.arch-box.frontend {
+.frontend-node {
   background: #eef2ff;
   border-color: #6366f1;
 }
 
-.arch-box.backend {
-  background: #f3e8ff;
-  border-color: #a855f7;
-}
-
-.arch-box.database {
-  background: #fce7f3;
-  border-color: #ec4899;
-}
-
-.box-title {
-  font-size: 0.875rem;
-  color: #6b7280;
+.node-icon {
+  font-size: 2rem;
   margin-bottom: 0.5rem;
+}
+
+.node-title {
+  font-size: 0.75rem;
+  color: #6b7280;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
 }
 
-.box-content {
-  font-size: 1.25rem;
+.node-desc {
+  font-size: 1.125rem;
   font-weight: 600;
   color: #1f2937;
 }
 
-.arch-arrow {
-  font-size: 2rem;
-  color: #6366f1;
+/* 连接线 */
+.arch-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 2.5rem;
+}
+
+.connector-line {
+  width: 2px;
+  flex: 1;
+  background: linear-gradient(to bottom, #6366f1, #a855f7);
+}
+
+.connector-arrow {
+  font-size: 0.75rem;
+  color: #a855f7;
+  line-height: 1;
+}
+
+/* OpenAPI 分组 */
+.arch-group {
+  width: 100%;
+  max-width: 680px;
+}
+
+.group-label {
+  text-align: center;
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 1rem;
+}
+
+.group-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+.group-card {
+  background: #faf5ff;
+  border: 1.5px solid #e9d5ff;
+  border-radius: 12px;
+  padding: 1.25rem;
+  transition: box-shadow 0.2s;
+}
+
+.group-card:hover {
+  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.12);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e9d5ff;
+}
+
+.card-icon {
+  font-size: 1.125rem;
+}
+
+.card-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #7c3aed;
+}
+
+.card-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.card-item {
+  font-size: 0.8125rem;
+  color: #4b5563;
+  padding: 0.375rem 0.5rem;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.item-tag {
+  font-size: 0.625rem;
+  font-weight: 600;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #b45309;
 }
 
 /* CTA */
@@ -832,6 +942,10 @@ const techStack = [
   }
   
   .features-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .group-cards {
     grid-template-columns: 1fr;
   }
   
