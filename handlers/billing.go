@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"crypto/hmac"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -76,6 +77,22 @@ type AggregatedBill struct {
 	MonthCount     int           `json:"month_count"`
 	Months         []string      `json:"months"`
 	Monthly        []MonthlyBill `json:"monthly"`
+	Sponsor        *SponsorInfo  `json:"sponsor"`
+}
+
+// SponsorInfo 爱发电赞助统计
+type SponsorInfo struct {
+	TotalCount  int           `json:"total_count"`
+	TotalAmount float64       `json:"total_amount"`
+	List        []SponsorItem `json:"list"`
+}
+
+// SponsorItem 单条赞助记录
+type SponsorItem struct {
+	Name   string  `json:"name"`
+	Avatar string  `json:"avatar"`
+	Amount float64 `json:"amount"`
+	Time   string  `json:"time"`
 }
 
 // ==================== 腾讯云 API 调用 ====================
@@ -393,6 +410,147 @@ func StartBillScheduler() {
 	}()
 }
 
+// ==================== 爱发电 API ====================
+
+// AfdianResponse 爱发电响应通用结构
+type AfdianResponse struct {
+	Ec   int                    `json:"ec"`
+	Em   string                 `json:"em"`
+	Data *AfdianSponsorData     `json:"data"`
+}
+
+type AfdianSponsorData struct {
+	TotalCount int                `json:"total_count"`
+	TotalPage  int                `json:"total_page"`
+	List       []AfdianSponsorEl  `json:"list"`
+}
+
+type AfdianSponsorEl struct {
+	AllSumAmount string      `json:"all_sum_amount"`
+	LastPayTime  int64       `json:"last_pay_time"`
+	User         *AfdianUser `json:"user"`
+}
+
+type AfdianUser struct {
+	Name   string `json:"name"`
+	Avatar string `json:"avatar"`
+}
+
+// afdianSign 计算爱发电 API 签名
+// sign = md5(token + "params" + params + "ts" + ts + "user_id" + user_id)
+func afdianSign(token, params string, ts int64) string {
+	raw := fmt.Sprintf("%sparams%sts%duser_id%s", token, params, ts, os.Getenv("AFDIAN_USER_ID"))
+	hash := md5.Sum([]byte(raw))
+	return hex.EncodeToString(hash[:])
+}
+
+// afdianPost 发起带签名的爱发电 API 请求
+func afdianPost(url, params string) (*AfdianResponse, error) {
+	userID := os.Getenv("AFDIAN_USER_ID")
+	token := os.Getenv("AFDIAN_TOKEN")
+	ts := time.Now().Unix()
+	sign := afdianSign(token, params, ts)
+
+	body := map[string]interface{}{
+		"user_id": userID,
+		"params":  params,
+		"ts":      ts,
+		"sign":    sign,
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var result AfdianResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// queryAfdianSponsor 查询爱发电赞助统计
+func queryAfdianSponsor() *SponsorInfo {
+	userID := os.Getenv("AFDIAN_USER_ID")
+	token := os.Getenv("AFDIAN_TOKEN")
+	if userID == "" || token == "" {
+		return &SponsorInfo{List: []SponsorItem{}}
+	}
+
+	// 请求所有页
+	var allList []AfdianSponsorEl
+	totalCount := 0
+	totalAmount := 0.0
+	page := 1
+
+	for {
+		params := fmt.Sprintf(`{"page":%d,"per_page":100}`, page)
+		result, err := afdianPost("https://ifdian.net/api/open/query-sponsor", params)
+		if err != nil {
+			log.Printf("⚠️ 请求爱发电 API 失败: %v", err)
+			break
+		}
+		if result.Ec != 200 || result.Data == nil {
+			log.Printf("⚠️ 爱发电 API 异常: ec=%d, em=%s", result.Ec, result.Em)
+			break
+		}
+
+		if page == 1 {
+			totalCount = result.Data.TotalCount
+		}
+
+		for _, el := range result.Data.List {
+			amt := 0.0
+			if el.AllSumAmount != "" {
+				amt, _ = strconv.ParseFloat(el.AllSumAmount, 64)
+			}
+			totalAmount += amt
+			allList = append(allList, el)
+		}
+
+		if page >= result.Data.TotalPage {
+			break
+		}
+		page++
+	}
+
+	log.Printf("❤️ 爱发电: %d 人赞助, 共计 %.2f 元", totalCount, totalAmount)
+
+	list := make([]SponsorItem, 0, len(allList))
+	for _, el := range allList {
+		name := "匿名"
+		avatar := ""
+		if el.User != nil {
+			name = el.User.Name
+			avatar = el.User.Avatar
+		}
+		amt := 0.0
+		if el.AllSumAmount != "" {
+			amt, _ = strconv.ParseFloat(el.AllSumAmount, 64)
+		}
+		tm := ""
+		if el.LastPayTime > 0 {
+			tm = time.Unix(el.LastPayTime, 0).Format("2006-01-02")
+		}
+		list = append(list, SponsorItem{
+			Name:   name,
+			Avatar: avatar,
+			Amount: amt,
+			Time:   tm,
+		})
+	}
+
+	return &SponsorInfo{
+		TotalCount:  totalCount,
+		TotalAmount: totalAmount,
+		List:        list,
+	}
+}
+
 // ==================== HTTP Handler ====================
 
 // HandleGetMoneyList 获取全部月份汇总账单
@@ -469,6 +627,9 @@ func HandleGetMoneyList() http.HandlerFunc {
 			monthly[i] = *b
 		}
 
+		// 查询爱发电赞助数据
+		sponsor := queryAfdianSponsor()
+
 		resp := AggregatedBill{
 			TotalCost:      totalCost,
 			TotalPayAmount: totalPay,
@@ -476,9 +637,15 @@ func HandleGetMoneyList() http.HandlerFunc {
 			MonthCount:     len(allBills),
 			Months:         months,
 			Monthly:        monthly,
+			Sponsor:        sponsor,
 		}
 
-		log.Printf("✅ 汇总账单: %d 个月, 共 %d 项, 实付总计 %.2f 元", len(allBills), totalItems, totalPay)
+		if sponsor != nil {
+			log.Printf("✅ 汇总账单: %d 个月, 共 %d 项, 实付 %.2f 元, 赞助 %.2f 元",
+				len(allBills), totalItems, totalPay, sponsor.TotalAmount)
+		} else {
+			log.Printf("✅ 汇总账单: %d 个月, 共 %d 项, 实付总计 %.2f 元", len(allBills), totalItems, totalPay)
+		}
 		writeJSON(w, http.StatusOK, resp)
 	}
 }

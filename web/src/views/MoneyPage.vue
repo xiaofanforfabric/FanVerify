@@ -28,6 +28,11 @@ const billData = ref<{
       month: string
     }[]
   }[]
+  sponsor: {
+    total_count: number
+    total_amount: number
+    list: { name: string; avatar: string; amount: number; time: string }[]
+  } | null
 } | null>(null)
 
 // 获取当前月份
@@ -202,6 +207,30 @@ function reloadPage() {
           </div>
         </div>
 
+        <!-- 赞助致谢 -->
+        <div class="sponsor-section">
+          <div v-if="billData.sponsor.total_count > 0" class="sponsor-thanks">
+            <span class="sponsor-heart">❤️</span>
+            <span>感谢 <strong>{{ billData.sponsor.total_count }}</strong> 位朋友自愿赞助
+            <strong>¥{{ formatMoney(billData.sponsor.total_amount) }}</strong></span>
+          </div>
+          <div v-else class="sponsor-thanks sponsor-empty">
+            <span class="sponsor-heart">❤️</span>
+            <span>尚未收到赞助</span>
+          </div>
+          <div v-if="billData.sponsor.list.length > 0" class="sponsor-list">
+            <div v-for="s in billData.sponsor.list" :key="s.name + s.time" class="sponsor-item">
+              <img v-if="s.avatar" :src="s.avatar" class="sponsor-avatar" />
+              <span v-else class="sponsor-avatar-placeholder">{{ s.name.charAt(0) }}</span>
+              <div class="sponsor-info">
+                <span class="sponsor-name">{{ s.name }}</span>
+                <span class="sponsor-time">{{ s.time }}</span>
+              </div>
+              <span class="sponsor-amount">¥{{ formatMoney(s.amount) }}</span>
+            </div>
+          </div>
+        </div>
+
         <!-- 逐月展示 -->
         <div v-for="monthly in billData.monthly" :key="monthly.month" class="bill-section">
           <h3 class="section-title">
@@ -359,7 +388,100 @@ function reloadPage() {
   to { transform: rotate(360deg); }
 }
 
-/* 账单内容 */
+/* 赞助致谢 */
+.sponsor-section {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.sponsor-thanks {
+  font-size: 0.9375rem;
+  color: #166534;
+  line-height: 1.6;
+}
+
+.sponsor-empty {
+  color: #9ca3af;
+}
+
+.sponsor-heart {
+  font-size: 1.25rem;
+  margin-right: 0.25rem;
+  animation: heartbeat 1.5s ease-in-out infinite;
+}
+
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  25% { transform: scale(1.15); }
+  50% { transform: scale(1); }
+}
+
+/* 赞助列表 */
+.sponsor-list {
+  margin-top: 1rem;
+  border-top: 1px solid #bbf7d0;
+  padding-top: 0.75rem;
+}
+
+.sponsor-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0;
+}
+
+.sponsor-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.sponsor-avatar-placeholder {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #bbf7d0;
+  color: #166534;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.sponsor-info {
+  flex: 1;
+  text-align: left;
+  min-width: 0;
+}
+
+.sponsor-name {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.sponsor-time {
+  display: block;
+  font-size: 0.6875rem;
+  color: #9ca3af;
+}
+
+.sponsor-amount {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #166534;
+  flex-shrink: 0;
+}
+
 .bill-container {
   max-width: 720px;
   margin: 2rem auto;
