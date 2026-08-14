@@ -65,6 +65,12 @@ func main() {
 		mux.HandleFunc("/api/debug/", handlers.Handle404Debug())
 	}
 
+	// 登录接口（人机验证 + 动态码核对 + JWT 签发）
+	mux.HandleFunc("/api/login", handlers.CorsMiddleware(handlers.HandleLogin()))
+
+	// 当前登录用户信息（Cookie JWT 鉴权）
+	mux.HandleFunc("/api/me", handlers.CorsMiddleware(handlers.HandleMe()))
+
 	// 账单查询接口（需人机验证）
 	mux.HandleFunc("/api/getmoneylist", handlers.CorsMiddleware(handlers.CaptchaMiddleware(handlers.HandleGetMoneyList())))
 

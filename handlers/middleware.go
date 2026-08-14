@@ -6,14 +6,49 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 )
 
-// CorsMiddleware CORS 中间件
+// isAllowedOrigin 判断跨域来源是否被允许（fanverify.cn 主域名及所有子域名）
+// 额外来源可通过环境变量 CORS_ALLOW_ORIGINS（逗号分隔）追加，供本地开发等场景使用
+func isAllowedOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "fanverify.cn" || strings.HasSuffix(host, ".fanverify.cn") {
+		return true
+	}
+	for _, extra := range strings.Split(os.Getenv("CORS_ALLOW_ORIGINS"), ",") {
+		extra = strings.TrimSpace(extra)
+		if extra == "" {
+			continue
+		}
+		if eu, err := url.Parse(extra); err == nil && host == strings.ToLower(eu.Hostname()) {
+			return true
+		}
+	}
+	return false
+}
+
+// CorsMiddleware CORS 中间件：仅允许 fanverify.cn 主域名及子域名携带 Cookie 跨域访问
 func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		// 非浏览器请求（无 Origin，如 OpenAPI 服务端调用）：保持开放
+		if origin == "" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			next(w, r)
+			return
+		}
+		// 浏览器跨域请求：仅放行 fanverify.cn 主域名及子域名
+		if isAllowedOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {

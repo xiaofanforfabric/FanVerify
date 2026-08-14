@@ -135,10 +135,6 @@ func createSQLiteTables() {
 		log.Fatalf("创建 tagdata 表失败: %v", err)
 	}
 
-	// UID 从 100000 开始
-	db.Exec("DELETE FROM sqlite_sequence WHERE name='userdata'")
-	db.Exec("INSERT INTO sqlite_sequence(name, seq) VALUES('userdata', 99999)")
-
 	// 兼容旧表：尝试添加新增字段（忽略已存在错误）
 	db.Exec("ALTER TABLE userdata ADD COLUMN code_lost_time TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE userdata ADD COLUMN status VARCHAR(8) NOT NULL DEFAULT 'ok'")
@@ -148,6 +144,10 @@ func createSQLiteTables() {
 
 	// 兼容 devdata 表：添加 PUID 字段
 	db.Exec("ALTER TABLE devdata ADD COLUMN PUID TEXT DEFAULT ''")
+
+	// UID 从 100000 开始（必须在所有 ALTER TABLE 之后，否则 ALTER 会重置 sqlite_sequence）
+	db.Exec("DELETE FROM sqlite_sequence WHERE name='userdata'")
+	db.Exec("INSERT INTO sqlite_sequence(name, seq) VALUES('userdata', 99999)")
 
 	log.Println("✅ 数据表: userdata 就绪 (SQLite, UID起始 100000)")
 }
@@ -245,6 +245,9 @@ func createMySQLTables() {
 		db.Exec("ALTER TABLE otpdata ADD INDEX idx_uid (UID)")
 		log.Println("✅ otpdata 表结构已修复")
 	}
+
+	// 确保 UID 从 100000 开始（即使是已存在的表）
+	db.Exec("ALTER TABLE userdata AUTO_INCREMENT = 100000")
 
 	log.Println("✅ 数据表: userdata 就绪 (MySQL, UID起始 100000)")
 }
