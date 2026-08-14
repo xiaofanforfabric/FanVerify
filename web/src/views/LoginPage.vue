@@ -10,6 +10,8 @@ const uid = ref('')
 const verifyCode = ref('')
 const step = ref<'input' | 'logging' | 'error'>('input')
 const errorMsg = ref('')
+const capToken = ref('')
+const captchaDone = ref(false)
 
 // 加载 Cap.js 人机验证组件
 function loadCapScript(): Promise<void> {
@@ -55,6 +57,19 @@ async function doLogin(token: string) {
   }
 }
 
+// 手动登录按钮：校验表单与人机验证后提交（支持先完成验证再填表单的顺序）
+async function submitLogin() {
+  if (!uid.value.trim() || !verifyCode.value.trim()) {
+    errorMsg.value = '请先填写 UID 和动态验证码'
+    return
+  }
+  if (!capToken.value) {
+    errorMsg.value = '请先完成人机验证'
+    return
+  }
+  await doLogin(capToken.value)
+}
+
 // 初始化人机验证：拦截 cap.js 的 redeem 请求获取 token
 async function initCaptcha() {
   await loadCapScript()
@@ -62,12 +77,10 @@ async function initCaptcha() {
   let resolved = false
   const onToken = (token: string) => {
     if (resolved) return
-    if (!uid.value.trim() || !verifyCode.value.trim()) {
-      errorMsg.value = '请先填写 UID 和动态验证码'
-      return
-    }
     resolved = true
-    doLogin(token)
+    capToken.value = token
+    captchaDone.value = true
+    errorMsg.value = ''
   }
 
   const originalFetch = window.fetch.bind(window)
@@ -124,6 +137,12 @@ onMounted(initCaptcha)
         <div class="captcha-box">
           <cap-widget data-cap-api-endpoint="https://cap.fanverify.cn/22a34a230e/"></cap-widget>
         </div>
+
+        <p v-if="captchaDone" class="captcha-done">✓ 人机验证已通过</p>
+
+        <button class="btn-login" :disabled="step === 'logging'" @click="submitLogin">
+          {{ step === 'logging' ? '登录中…' : '登 录' }}
+        </button>
 
         <p v-if="errorMsg" class="form-error">{{ errorMsg }}</p>
         <p v-if="step === 'logging'" class="form-tip">正在验证登录…</p>
@@ -251,6 +270,36 @@ onMounted(initCaptcha)
   font-size: 13px;
   text-align: center;
   margin: 12px 0 0;
+}
+
+.captcha-done {
+  color: #16a34a;
+  font-size: 13px;
+  text-align: center;
+  margin: 12px 0 0;
+}
+
+.btn-login {
+  width: 100%;
+  margin-top: 18px;
+  padding: 13px 0;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.btn-login:active {
+  transform: scale(0.98);
+}
+
+.btn-login:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .form-tip {

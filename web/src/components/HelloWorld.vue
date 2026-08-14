@@ -99,7 +99,12 @@ const flowSteps = [
         <div class="ring ring-2"></div>
         <div class="ring ring-3"></div>
       </div>
-      
+
+      <!-- 右上角登录入口 -->
+      <div class="hero-login">
+        <router-link to="/login" class="login-btn">登录</router-link>
+      </div>
+
       <div class="hero-content">
         <div class="logo-section">
           <img src="/logo.png" alt="FanVerify Logo" class="site-logo" />
@@ -387,6 +392,33 @@ const flowSteps = [
   justify-content: center;
   padding: 2rem;
   overflow: hidden;
+}
+
+/* 右上角登录按钮 */
+.hero-login {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  z-index: 20;
+}
+
+.login-btn {
+  display: inline-block;
+  padding: 8px 22px;
+  border: 1px solid rgba(79, 70, 229, 0.4);
+  border-radius: 999px;
+  color: #4f46e5;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  transition: all 0.2s;
+}
+
+.login-btn:hover {
+  background: #4f46e5;
+  color: #fff;
 }
 
 .hero-bg {
