@@ -128,6 +128,9 @@ func handleLoginPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 无论成功与否，先作废本次动态验证码：防止 150 秒窗口内暴力枚举（如 4 位码仅 1 万种）
+	db.Exec("UPDATE userdata SET tmp_code = '', code_lost_time = '' WHERE UID = ?", uid)
+
 	// 校验动态验证码
 	if tmpCode != req.VerifyCode {
 		log.Printf("❌ 登录失败: 验证码不匹配 UID=%d", uid)
