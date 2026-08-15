@@ -33,6 +33,9 @@ func main() {
 	initDB()
 	handlers.SetDB(GetDB())
 
+	// 初始化 ip2region 离线 IP 库（省份校验）
+	handlers.InitIP2Region()
+
 	// 读取 debug 模式
 	debugMode := getEnv("DEBUG", "false") == "true"
 

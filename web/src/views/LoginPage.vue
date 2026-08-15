@@ -12,6 +12,7 @@ const step = ref<'input' | 'logging' | 'error'>('input')
 const errorMsg = ref('')
 const capToken = ref('')
 const captchaDone = ref(false)
+const checking = ref(true) // 是否在检测登录状态
 
 // 加载 Cap.js 人机验证组件
 function loadCapScript(): Promise<void> {
@@ -105,7 +106,30 @@ async function initCaptcha() {
   }, 30000)
 }
 
-onMounted(initCaptcha)
+onMounted(async () => {
+  // 先检测是否已登录（Cookie 中有有效 JWT）：200 直接跳 /user，否则显示登录表单
+  const authed = await checkAuth()
+  if (!authed) {
+    initCaptcha()
+  }
+})
+
+// 检测登录状态：调用 /api/me，200=已登录直接跳转，否则要求登录（401 时后端已清理过期 Cookie）
+async function checkAuth(): Promise<boolean> {
+  try {
+    const res = await fetch(API_BASE + '/api/me', { credentials: 'include' })
+    if (res.status === 200) {
+      router.push('/user')
+      return true
+    }
+    return false
+  } catch (e) {
+    console.error('检查登录状态失败:', e)
+    return false
+  } finally {
+    checking.value = false
+  }
+}
 </script>
 
 <template>
@@ -117,7 +141,14 @@ onMounted(initCaptcha)
     </nav>
 
     <div class="login-wrap">
-      <div class="login-card">
+      <!-- 检查登录状态中 -->
+      <div v-if="checking" class="login-card status-card">
+        <div class="logo-badge">🔐</div>
+        <p class="form-tip">正在检查登录状态…</p>
+      </div>
+
+      <!-- 登录表单 -->
+      <div v-else class="login-card">
         <div class="card-head">
           <div class="logo-badge">🔐</div>
           <h1>FanVerify 登录</h1>
@@ -230,6 +261,11 @@ onMounted(initCaptcha)
   color: #6b7280;
   font-size: 13px;
   margin: 0;
+}
+
+.status-card {
+  text-align: center;
+  padding: 48px 28px;
 }
 
 .form-field {

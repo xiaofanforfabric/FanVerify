@@ -26,14 +26,15 @@ type LoginRequest struct {
 }
 
 // JWTClaims JWT 载荷
+// 结构：{ ip, province, iat, exp, userdata }
+// province 以省为基准绑定：容忍同省换 IP/运营商；跨省视为 token 被挪用，拒绝
+// ip 字段仅记录签发时的客户端 IP（供审计）
 type JWTClaims struct {
-	UID    int    `json:"uid"`
-	Level  int    `json:"level"`
-	Tag    string `json:"tag"`
-	Status string `json:"status"`
-	OpenID string `json:"openid"`
-	IAT    int64  `json:"iat"` // 签发时间（Unix 秒）
-	EXP    int64  `json:"exp"` // 过期时间（Unix 秒）
+	IP       string `json:"ip"`       // 签发时的客户端 IP（记录用）
+	Province string `json:"province"` // 签发时 IP 所属省份（防重放校验基准）
+	IAT      int64  `json:"iat"`      // 签发时间（Unix 秒）
+	EXP      int64  `json:"exp"`      // 过期时间（Unix 秒）
+	UserData []User `json:"userdata"` // 用户信息（自包含在 token 内）
 }
 
 // LoginResponse 登录成功响应
@@ -154,14 +155,13 @@ func handleLoginPOST(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	expireAt := now.Add(defaultJWTExpire)
+	ip := clientIP(r)
 	claims := JWTClaims{
-		UID:    user.UID,
-		Level:  user.Level,
-		Tag:    user.Tag,
-		Status: user.Status,
-		OpenID: user.OpenID,
-		IAT:    now.Unix(),
-		EXP:    expireAt.Unix(),
+		IP:       ip,
+		Province: queryProvince(ip),
+		IAT:      now.Unix(),
+		EXP:      expireAt.Unix(),
+		UserData: []User{user},
 	}
 	token, err := signJWT(jwtSecret, claims)
 	if err != nil {
@@ -288,14 +288,13 @@ func handleLoginGET(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	expireAt := now.Add(defaultJWTExpire)
+	ip := clientIP(r)
 	claims := JWTClaims{
-		UID:    user.UID,
-		Level:  user.Level,
-		Tag:    user.Tag,
-		Status: user.Status,
-		OpenID: user.OpenID,
-		IAT:    now.Unix(),
-		EXP:    expireAt.Unix(),
+		IP:       ip,
+		Province: queryProvince(ip),
+		IAT:      now.Unix(),
+		EXP:      expireAt.Unix(),
+		UserData: []User{user},
 	}
 	token, err := signJWT(jwtSecret, claims)
 	if err != nil {
@@ -418,28 +417,52 @@ func HandleMe() http.HandlerFunc {
 
 		claims, err := verifyJWT(jwtSecret, cookie.Value)
 		if err != nil {
+			// 令牌过期/无效：主动清除浏览器里的失效 Cookie（前端 JS 无法删除 HttpOnly Cookie）
+			clearAuthCookie(w)
 			writeJSON(w, http.StatusUnauthorized, ApiResponse{Success: false, Error: "登录已过期，请重新登录"})
 			return
 		}
 
-		var user User
-		err = db.QueryRow(
-			"SELECT UID, level, code_level, reg_time, tag, status, openid FROM userdata WHERE UID = ?",
-			claims.UID,
-		).Scan(&user.UID, &user.Level, &user.CodeLevel, &user.RegTime, &user.Tag, &user.Status, &user.OpenID)
-		if err != nil {
-			log.Printf("❌ 查询用户失败: %v", err)
-			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "内部错误"})
+		// 省份校验：以省为基准（容忍同省换 IP/运营商；跨省视为 token 被挪用）
+		if claims.Province != "" {
+			currentProvince := queryProvince(clientIP(r))
+			if currentProvince != "" && currentProvince != claims.Province {
+				log.Printf("⚠️ 省份变化，拒绝访问: 绑定省=%s 当前省=%s", claims.Province, currentProvince)
+				clearAuthCookie(w)
+				writeJSON(w, http.StatusUnauthorized, ApiResponse{Success: false, Error: "登录环境变化，请重新登录"})
+				return
+			}
+		}
+
+		// 从 JWT 自包含的 userdata 读取用户信息（无需再次查库）
+		if len(claims.UserData) == 0 {
+			clearAuthCookie(w)
+			writeJSON(w, http.StatusUnauthorized, ApiResponse{Success: false, Error: "登录信息不完整，请重新登录"})
 			return
 		}
 
 		resp := LoginResponse{
-			UserData: []User{user},
+			UserData: claims.UserData,
 			IP:       clientIP(r),
 			LostTime: strconv.FormatInt(claims.EXP*1000, 10),
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(resp)
-		log.Printf("✅ 查询当前用户: UID=%d", user.UID)
+		log.Printf("✅ 查询当前用户: UID=%d (JWT 自包含)", claims.UserData[0].UID)
 	}
+}
+
+// clearAuthCookie 指示浏览器清除登录 Cookie
+// （HttpOnly Cookie 前端 JS 无法删除，只能由后端通过 Set-Cookie 指令浏览器删除）
+func clearAuthCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "fanverify_token",
+		Value:    "",
+		Path:     "/",
+		Domain:   "fanverify.cn",
+		HttpOnly: true,
+		Secure:   true,
+		MaxAge:   -1, // 立即过期，浏览器删除
+		SameSite: http.SameSiteLaxMode,
+	})
 }
