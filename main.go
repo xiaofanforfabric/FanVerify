@@ -74,6 +74,10 @@ func main() {
 	// 当前登录用户信息（Cookie JWT 鉴权）
 	mux.HandleFunc("/api/me", handlers.CorsMiddleware(handlers.HandleMe()))
 
+	// 公开法律条款（用户协议 / 隐私政策，纯文本）
+	mux.HandleFunc("/api/legal/agreement", handlers.CorsMiddleware(handlers.HandleLegalAgreement()))
+	mux.HandleFunc("/api/legal/privacy", handlers.CorsMiddleware(handlers.HandleLegalPrivacy()))
+
 	// 账单查询接口（需人机验证）
 	mux.HandleFunc("/api/getmoneylist", handlers.CorsMiddleware(handlers.CaptchaMiddleware(handlers.HandleGetMoneyList())))
 

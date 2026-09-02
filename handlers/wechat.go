@@ -1,11 +1,11 @@
 package handlers
 
 import (
-	"database/sql"
-	"encoding/json"
 	"crypto/hmac"
 	"crypto/sha1"
+	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -41,18 +41,19 @@ type WeChatAPIResponse struct {
 
 // User 用户结构
 type User struct {
-	UID     int    `json:"uid"`
-	Level   int    `json:"level"`
-	CodeLevel int  `json:"code_level"`
-	RegTime string `json:"reg_time"`
-	Tag     string `json:"tag"`
-	Status  string `json:"status"`
-	OpenID  string `json:"openid"`
+	UID       int    `json:"uid"`
+	Level     int    `json:"level"`
+	CodeLevel int    `json:"code_level"`
+	RegTime   string `json:"reg_time"`
+	Tag       string `json:"tag"`
+	Status    string `json:"status"`
+	OpenID    string `json:"openid"`
 }
 
 // CodeRequest code 请求结构
 type CodeRequest struct {
 	Code string `json:"code"`
+	Reg  string `json:"reg"` // 协议同意标记："true" = 已同意用户协议/隐私政策并注册
 }
 
 // CodeGenerateRequest 生成验证码请求
@@ -111,22 +112,48 @@ func HandleCodeOpenID(appID, secret string) http.HandlerFunc {
 			return
 		}
 
-		user, err := findOrCreateUser(wxResp.OpenID)
+		user, err := findUserByOpenID(wxResp.OpenID)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"code":500}`))
 			return
 		}
 
-		response := map[string]interface{}{
-			"code": 200,
-			"data": []User{*user},
+		// 已注册用户 → 直接返回
+		if user != nil {
+			writeUserOK(w, user)
+			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
-		log.Printf("✅ 用户登录成功: UID=%d, OpenID=%s", user.UID, user.OpenID)
+		// 未注册：仅查询注册状态（未带 reg=true）→ 404，等待用户同意协议后注册
+		if req.Reg != "true" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"code":404,"error":"用户未注册"}`))
+			log.Printf("ℹ️ 用户未注册，等待协议同意: OpenID=%s", wxResp.OpenID)
+			return
+		}
+
+		// 已同意用户协议/隐私政策（reg=true）→ 注册
+		user, err = createUser(wxResp.OpenID)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"code":500}`))
+			return
+		}
+		writeUserOK(w, user)
 	}
+}
+
+// writeUserOK 输出登录成功（含用户信息）
+func writeUserOK(w http.ResponseWriter, user *User) {
+	response := map[string]interface{}{
+		"code": 200,
+		"data": []User{*user},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+	log.Printf("✅ 用户登录成功: UID=%d", user.UID)
 }
 
 // HandleCodeGenerate 生成验证码
@@ -182,8 +209,8 @@ func HandleCodeGenerate(appID, secret, codeSecret string) http.HandlerFunc {
 		response := map[string]interface{}{
 			"code": 200,
 			"data": map[string]interface{}{
-				"verify_code":     verifyCode,
-				"code_lost_time":  lostTime,
+				"verify_code":    verifyCode,
+				"code_lost_time": lostTime,
 			},
 		}
 
@@ -251,9 +278,9 @@ func HandleUpdateCodeLevel(appID, secret, codeSecret string) http.HandlerFunc {
 		response := map[string]interface{}{
 			"code": 200,
 			"data": map[string]interface{}{
-				"new_code_level":  req.NewCodeLevel,
-				"new_tmp_code":    newVerifyCode,
-				"code_lost_time":  newLostTime,
+				"new_code_level": req.NewCodeLevel,
+				"new_tmp_code":   newVerifyCode,
+				"code_lost_time": newLostTime,
 			},
 		}
 
@@ -399,17 +426,12 @@ func callWeChatAPI(url string) (*WeChatAPIResponse, error) {
 	return &wxResp, nil
 }
 
-func findOrCreateUser(openID string) (*User, error) {
-	user, err := findUserByOpenID(openID)
-	if err == nil && user != nil {
-		return user, nil
-	}
-
+// createUser 创建新用户（调用方需已确认用户同意用户协议/隐私政策）
+func createUser(openID string) (*User, error) {
 	result, err := db.Exec("INSERT INTO userdata (openid, level, status) VALUES (?, 1, 'ok')", openID)
 	if err != nil {
 		return nil, err
 	}
-
 	uid, _ := result.LastInsertId()
 	return findUserByUID(int(uid))
 }
@@ -424,7 +446,7 @@ func findUserByOpenID(openID string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-		return &user, nil
+	return &user, nil
 }
 
 // TOTP 算法实现
