@@ -47,6 +47,9 @@ func main() {
 	mux.HandleFunc("/api/wx/update/code_level", handlers.CorsMiddleware(handlers.HandleUpdateCodeLevel(appID, secret, codeSecret)))
 	mux.HandleFunc("/api/wx/otpAPI", handlers.CorsMiddleware(handlers.HandleOTPAPI(appID, secret)))
 
+	// 升级二级验证等级（手机号短信验证码）
+	mux.HandleFunc("/api/wx/update/verify_level", handlers.CorsMiddleware(handlers.HandleUpdateVerifyLevel(appID, secret)))
+
 	// OpenAPI 接口（需要 accesstoken 鉴权）
 	mux.HandleFunc("/openapi/otp", handlers.CorsMiddleware(handlers.AccessTokenMiddleware(handlers.HandleGenerateOTP())))
 	mux.HandleFunc("/openapi/genqrcode", handlers.CorsMiddleware(handlers.AccessTokenMiddleware(handlers.HandleGenerateQRCode())))

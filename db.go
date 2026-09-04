@@ -135,6 +135,22 @@ func createSQLiteTables() {
 		log.Fatalf("创建 tagdata 表失败: %v", err)
 	}
 
+	// 创建升级二级验证临时表（手机号短信验证码）
+	tmpQuery := `CREATE TABLE IF NOT EXISTS tmp_biand (
+		id             INTEGER      NOT NULL PRIMARY KEY AUTOINCREMENT,
+		openid         VARCHAR(64)  NOT NULL DEFAULT '',  -- 微信 openid
+		phone          VARCHAR(20)  NOT NULL DEFAULT '',  -- 目标手机号
+		session_token  VARCHAR(64)  NOT NULL DEFAULT '',  -- 验证会话令牌
+		lost_time      VARCHAR(20)  NOT NULL DEFAULT '',  -- 验证码重发限制过期戳(60s)
+		pass_code      VARCHAR(6)   NOT NULL DEFAULT '',  -- 短信验证码
+		pass_lost_time VARCHAR(20)  NOT NULL DEFAULT '',  -- 验证码过期戳(5min)
+		create_time    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`
+	if _, err := db.Exec(tmpQuery); err != nil {
+		log.Fatalf("创建 tmp_biand 表失败: %v", err)
+	}
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tmp_biand_openid ON tmp_biand(openid)")
+
 	// 兼容旧表：尝试添加新增字段（忽略已存在错误）
 	db.Exec("ALTER TABLE userdata ADD COLUMN code_lost_time TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE userdata ADD COLUMN status VARCHAR(8) NOT NULL DEFAULT 'ok'")
@@ -221,6 +237,22 @@ func createMySQLTables() {
 	)`
 	if _, err := db.Exec(tagQuery); err != nil {
 		log.Fatalf("创建 tagdata 表失败: %v", err)
+	}
+
+	// 创建升级二级验证临时表（手机号短信验证码）
+	tmpQuery := `CREATE TABLE IF NOT EXISTS tmp_biand (
+		id             INT          NOT NULL PRIMARY KEY AUTO_INCREMENT,
+		openid         VARCHAR(64)  NOT NULL DEFAULT '',
+		phone          VARCHAR(20)  NOT NULL DEFAULT '',
+		session_token  VARCHAR(64)  NOT NULL DEFAULT '',
+		lost_time      VARCHAR(20)  NOT NULL DEFAULT '',
+		pass_code      VARCHAR(6)   NOT NULL DEFAULT '',
+		pass_lost_time VARCHAR(20)  NOT NULL DEFAULT '',
+		create_time    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE KEY uk_tmp_biand_openid (openid)
+	)`
+	if _, err := db.Exec(tmpQuery); err != nil {
+		log.Fatalf("创建 tmp_biand 表失败: %v", err)
 	}
 
 	// 兼容旧表：尝试添加新增字段
