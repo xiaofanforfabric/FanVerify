@@ -57,6 +57,16 @@ function goLogin() {
   router.push('/login')
 }
 
+// 汉堡菜单
+const menuOpen = ref(false)
+function toggleMenu() {
+  menuOpen.value = !menuOpen.value
+}
+function goMenu(path: string) {
+  menuOpen.value = false
+  router.push(path)
+}
+
 onMounted(fetchMe)
 </script>
 
@@ -65,7 +75,20 @@ onMounted(fetchMe)
     <nav class="user-nav">
       <router-link to="/" class="nav-back">← 返回首页</router-link>
       <span class="nav-title">我的信息</span>
-      <span class="nav-placeholder"></span>
+      <div class="nav-right">
+        <button class="hamburger" :class="{ active: menuOpen }" @click="toggleMenu" aria-label="菜单">
+          <span class="bar"></span>
+          <span class="bar"></span>
+          <span class="bar"></span>
+        </button>
+
+        <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false"></div>
+
+        <div v-if="menuOpen" class="menu-dropdown">
+          <div class="menu-item" @click="goMenu('/user')">👤 用户中心</div>
+          <div class="menu-item" @click="goMenu('/developer')">🛠️ 开发者页面</div>
+        </div>
+      </div>
     </nav>
 
     <div class="user-wrap">
@@ -163,8 +186,67 @@ onMounted(fetchMe)
   font-size: 16px;
 }
 
-.nav-placeholder {
+.nav-right {
+  position: relative;
   width: 120px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hamburger {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 10px;
+}
+
+.hamburger .bar {
+  width: 22px;
+  height: 2px;
+  background: #1f2937;
+  border-radius: 2px;
+  transition: transform 0.2s;
+}
+
+.menu-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+}
+
+.menu-dropdown {
+  position: absolute;
+  top: 48px;
+  right: 0;
+  z-index: 30;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  min-width: 168px;
+  overflow: hidden;
+  border: 1px solid #f3f4f6;
+}
+
+.menu-item {
+  padding: 13px 18px;
+  font-size: 14px;
+  color: #1f2937;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menu-item:hover {
+  background: #f3f4f6;
+}
+
+.menu-item + .menu-item {
+  border-top: 1px solid #f3f4f6;
 }
 
 .user-wrap {
