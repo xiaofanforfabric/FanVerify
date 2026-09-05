@@ -95,7 +95,20 @@ func handleVerifyLevelPost(w http.ResponseWriter, r *http.Request, appID, secret
 		return
 	}
 
-	// 3. 查上次记录：60s 内禁止重发
+	// 3. 手机号占用检查：该手机号若已被其他用户绑定则不发验证码
+	var phoneCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM userdata WHERE phone = ? AND openid <> ?", req.Phone, openid).Scan(&phoneCount)
+	if err != nil {
+		log.Printf("❌ 查询手机号占用失败: %v", err)
+		writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "内部错误"})
+		return
+	}
+	if phoneCount > 0 {
+		writeJSON(w, http.StatusConflict, ApiResponse{Success: false, Error: "该手机号已被占用"})
+		return
+	}
+
+	// 4. 查上次记录：60s 内禁止重发
 	var prevLostTime string
 	err = db.QueryRow("SELECT lost_time FROM tmp_biand WHERE openid = ?", openid).Scan(&prevLostTime)
 	if err == nil {
@@ -115,13 +128,13 @@ func handleVerifyLevelPost(w http.ResponseWriter, r *http.Request, appID, secret
 		return
 	}
 
-	// 4. 生成会话与验证码
+	// 5. 生成会话与验证码
 	sessionToken := generateOTP(32)
 	passCode := genPassCode(6)
 	lostTime := time.Now().Add(vlResendSec * time.Second).UnixMilli()
 	passLostTime := time.Now().Add(vlCodeExpire).UnixMilli()
 
-	// 5. 写入 tmp_biand
+	// 6. 写入 tmp_biand
 	_, err = db.Exec("INSERT INTO tmp_biand (openid, phone, session_token, lost_time, pass_code, pass_lost_time) VALUES (?, ?, ?, ?, ?, ?)",
 		openid, req.Phone, sessionToken, fmt.Sprintf("%d", lostTime), passCode, fmt.Sprintf("%d", passLostTime))
 	if err != nil {
@@ -130,7 +143,7 @@ func handleVerifyLevelPost(w http.ResponseWriter, r *http.Request, appID, secret
 		return
 	}
 
-	// 6. 腾讯云短信发送
+	// 7. 腾讯云短信发送
 	if err := sendSmsCode(req.Phone, passCode); err != nil {
 		db.Exec("DELETE FROM tmp_biand WHERE openid = ?", openid) // 发送失败清理记录
 		log.Printf("❌ 短信发送失败: %v", err)
@@ -138,7 +151,7 @@ func handleVerifyLevelPost(w http.ResponseWriter, r *http.Request, appID, secret
 		return
 	}
 
-	// 7. 返回 session_token
+	// 8. 返回 session_token
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{

@@ -138,10 +138,6 @@ onMounted(fetchMe)
             <span class="info-val">{{ user.reg_time }}</span>
           </div>
           <div class="info-row">
-            <span class="info-key">OpenID</span>
-            <span class="info-val mono">{{ user.openid }}</span>
-          </div>
-          <div class="info-row">
             <span class="info-key">登录 IP</span>
             <span class="info-val mono">{{ ip }}</span>
           </div>
