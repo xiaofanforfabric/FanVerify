@@ -151,6 +151,9 @@ func createSQLiteTables() {
 	}
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tmp_biand_openid ON tmp_biand(openid)")
 
+	// 兼容早期开发库：dev_visa_list.plan_id 若为 NOT NULL 则重建为空表（全新表，无业务数据）
+	dropLegacyVisaTablesIfNotNull()
+
 	// 创建开发者入驻申请(visa)表
 	visaQuery := `CREATE TABLE IF NOT EXISTS dev_visa_list (
 		id             INTEGER      NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -165,7 +168,7 @@ func createSQLiteTables() {
 		status         VARCHAR(8)   NOT NULL DEFAULT 'wait',  -- wait=审核中 / ok=已通过 / ice=删除冻结
 		end_time       VARCHAR(20)  NOT NULL DEFAULT '',      -- 审核结束时间戳(申请时间+1天)
 		admin_see      VARCHAR(8)   NOT NULL DEFAULT 'no',    -- yes/no 是否需要人工审核
-		plan_id        VARCHAR(64)  NOT NULL DEFAULT ''       -- 关联 plan_list.plan_id
+		plan_id        VARCHAR(64)  DEFAULT NULL             -- 关联 plan_list.plan_id(NULL=人工审核不建计划任务)
 	)`
 	if _, err := db.Exec(visaQuery); err != nil {
 		log.Fatalf("创建 dev_visa_list 表失败: %v", err)
@@ -303,7 +306,7 @@ func createMySQLTables() {
 		status         VARCHAR(8)   NOT NULL DEFAULT 'wait',  -- wait=审核中 / ok=已通过 / ice=删除冻结
 		end_time       VARCHAR(20)  NOT NULL DEFAULT '',      -- 审核结束时间戳(申请时间+1天)
 		admin_see      VARCHAR(8)   NOT NULL DEFAULT 'no',    -- yes/no 是否需要人工审核
-		plan_id        VARCHAR(64)  NOT NULL DEFAULT '',      -- 关联 plan_list.plan_id
+		plan_id        VARCHAR(64)  DEFAULT NULL,            -- 关联 plan_list.plan_id(NULL=人工审核不建计划任务)
 		INDEX idx_dev_visa_uid (uid),
 		INDEX idx_dev_visa_biz (serverip, service_adderss)
 	)`
@@ -322,6 +325,9 @@ func createMySQLTables() {
 	if _, err := db.Exec(planQuery); err != nil {
 		log.Fatalf("创建 plan_list 表失败: %v", err)
 	}
+
+	// 兼容：确保 dev_visa_list.plan_id 允许 NULL（人工审核申请不建计划任务）
+	db.Exec("ALTER TABLE dev_visa_list MODIFY plan_id VARCHAR(64) DEFAULT NULL")
 
 	// 兼容旧表：尝试添加新增字段
 	db.Exec("ALTER TABLE userdata ADD COLUMN code_lost_time TEXT NOT NULL DEFAULT ''")
@@ -350,6 +356,29 @@ func createMySQLTables() {
 	db.Exec("ALTER TABLE userdata AUTO_INCREMENT = 100000")
 
 	log.Println("✅ 数据表: userdata 就绪 (MySQL, UID起始 100000)")
+}
+
+// dropLegacyVisaTablesIfNotNull 兼容早期开发库：若 dev_visa_list.plan_id 仍为 NOT NULL，
+// 说明表由旧定义创建（该表为全新表，无正式数据），删除后由 CREATE IF NOT EXISTS 按新定义重建。
+func dropLegacyVisaTablesIfNotNull() {
+	rows, err := db.Query("PRAGMA table_info(dev_visa_list)")
+	if err != nil {
+		return // 表不存在等情况，无需处理
+	}
+	defer rows.Close()
+	needDrop := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ, dflt sql.NullString
+		if rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk) == nil && name.String == "plan_id" && notnull == 1 {
+			needDrop = true
+		}
+	}
+	if needDrop {
+		log.Println("⚠️ dev_visa_list 旧定义为 plan_id NOT NULL，重建为空表以支持 NULL（表无正式数据）")
+		db.Exec("DROP TABLE IF EXISTS dev_visa_list")
+		db.Exec("DROP TABLE IF EXISTS plan_list")
+	}
 }
 
 // GetDB 返回全局数据库连接

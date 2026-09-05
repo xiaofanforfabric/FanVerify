@@ -222,20 +222,25 @@ func HandleNeedDevKey() http.HandlerFunc {
 			return
 		}
 		visaID, _ := res.LastInsertId()
-		planID := strconv.FormatInt(visaID, 10)
 
-		// 回填 plan_id，并创建计划任务写入 plan_list（供后续计划任务/保活检测模块轮询）
-		db.Exec("UPDATE dev_visa_list SET plan_id = ? WHERE id = ?", planID, visaID)
-		_, err = db.Exec(
-			"INSERT INTO plan_list (plan_id, last_see_time, output) VALUES (?, ?, '')",
-			planID, fmt.Sprintf("%d", now.UnixMilli()),
-		)
-		if err != nil {
-			log.Printf("⚠️ 开发者申请: 写入 plan_list 失败(不影响申请): %v", err)
+		// 回填 plan_id 并创建计划任务（供后续保活检测模块轮询）。
+		// 人工审核类业务（type=none/其他）不创建计划任务：plan_id 保持 NULL，不能按 1 天自动判过
+		var planID string
+		if d.Type == "none" {
+			db.Exec("UPDATE dev_visa_list SET plan_id = NULL WHERE id = ?", visaID)
+		} else {
+			planID = strconv.FormatInt(visaID, 10)
+			db.Exec("UPDATE dev_visa_list SET plan_id = ? WHERE id = ?", planID, visaID)
+			if _, err = db.Exec(
+				"INSERT INTO plan_list (plan_id, last_see_time, output) VALUES (?, ?, '')",
+				planID, fmt.Sprintf("%d", now.UnixMilli()),
+			); err != nil {
+				log.Printf("⚠️ 开发者申请: 写入 plan_list 失败(不影响申请): %v", err)
+			}
 		}
 
 		// 9. 返回成功
-		log.Printf("✅ 开发者申请已提交: UID=%d type=%s serverip=%s addr=%s plan=%s", uid, d.Type, d.ServerIP, d.ServiceAddr, planID)
+		log.Printf("✅ 开发者申请已提交: UID=%d type=%s serverip=%s addr=%s visa=%d admin_see=%s", uid, d.Type, d.ServerIP, d.ServiceAddr, visaID, adminSee)
 		writeJSON(w, http.StatusOK, ApiResponse{
 			Success: true,
 			Data: map[string]interface{}{

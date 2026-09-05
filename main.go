@@ -83,6 +83,9 @@ func main() {
 	// 开发者入驻申请（人机验证 + JWT + 写入 dev_visa_list / plan_list）
 	mux.HandleFunc("/api/need_dev_key", handlers.CorsMiddleware(handlers.HandleNeedDevKey()))
 
+	// 开发者状态查询（是否开发者 + 可用密钥 + 审核中的申请）
+	mux.HandleFunc("/api/user/isdev", handlers.CorsMiddleware(handlers.HandleIsDev()))
+
 	// 公开法律条款（用户协议 / 隐私政策 / 开发者服务协议 / 开发者隐私政策，纯文本）
 	mux.HandleFunc("/api/legal/agreement", handlers.CorsMiddleware(handlers.HandleLegalAgreement()))
 	mux.HandleFunc("/api/legal/privacy", handlers.CorsMiddleware(handlers.HandleLegalPrivacy()))
