@@ -80,9 +80,14 @@ func main() {
 	// 退出登录（清除 HttpOnly 登录 Cookie，幂等）
 	mux.HandleFunc("/api/logout", handlers.CorsMiddleware(handlers.HandleLogout()))
 
-	// 公开法律条款（用户协议 / 隐私政策，纯文本）
+	// 开发者入驻申请（人机验证 + JWT + 写入 dev_visa_list / plan_list）
+	mux.HandleFunc("/api/need_dev_key", handlers.CorsMiddleware(handlers.HandleNeedDevKey()))
+
+	// 公开法律条款（用户协议 / 隐私政策 / 开发者服务协议 / 开发者隐私政策，纯文本）
 	mux.HandleFunc("/api/legal/agreement", handlers.CorsMiddleware(handlers.HandleLegalAgreement()))
 	mux.HandleFunc("/api/legal/privacy", handlers.CorsMiddleware(handlers.HandleLegalPrivacy()))
+	mux.HandleFunc("/api/legal/developer", handlers.CorsMiddleware(handlers.HandleLegalDeveloperAgreement()))
+	mux.HandleFunc("/api/legal/developer-privacy", handlers.CorsMiddleware(handlers.HandleLegalDeveloperPrivacy()))
 
 	// 账单查询接口（需人机验证）
 	mux.HandleFunc("/api/getmoneylist", handlers.CorsMiddleware(handlers.CaptchaMiddleware(handlers.HandleGetMoneyList())))

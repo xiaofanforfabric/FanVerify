@@ -151,6 +151,40 @@ func createSQLiteTables() {
 	}
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tmp_biand_openid ON tmp_biand(openid)")
 
+	// 创建开发者入驻申请(visa)表
+	visaQuery := `CREATE TABLE IF NOT EXISTS dev_visa_list (
+		id             INTEGER      NOT NULL PRIMARY KEY AUTOINCREMENT,
+		openid         VARCHAR(64)  NOT NULL DEFAULT '',
+		uid            INTEGER      NOT NULL DEFAULT 0,
+		type           VARCHAR(16)  NOT NULL DEFAULT 'web',   -- web/javamc/cmc/none(其他)
+		other_type     VARCHAR(64)  NOT NULL DEFAULT '',      -- 选"其他"时填写的具体类型(需人工审核)
+		serverip       VARCHAR(64)  NOT NULL DEFAULT '',      -- 服务器请求出口 IP(仅 IPv4)
+		service_adderss VARCHAR(255) NOT NULL DEFAULT '',     -- 业务地址: IP:端口 或 域名
+		connect_type   VARCHAR(8)   NOT NULL DEFAULT 'http',  -- http / wsc(正向WS) / wss(反向WS)
+		tag            TEXT         NOT NULL DEFAULT '',      -- 业务备注
+		status         VARCHAR(8)   NOT NULL DEFAULT 'wait',  -- wait=审核中 / ok=已通过 / ice=删除冻结
+		end_time       VARCHAR(20)  NOT NULL DEFAULT '',      -- 审核结束时间戳(申请时间+1天)
+		admin_see      VARCHAR(8)   NOT NULL DEFAULT 'no',    -- yes/no 是否需要人工审核
+		plan_id        VARCHAR(64)  NOT NULL DEFAULT ''       -- 关联 plan_list.plan_id
+	)`
+	if _, err := db.Exec(visaQuery); err != nil {
+		log.Fatalf("创建 dev_visa_list 表失败: %v", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_dev_visa_uid ON dev_visa_list(uid)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_dev_visa_biz ON dev_visa_list(serverip, service_adderss)")
+
+	// 创建计划任务(保活检测)表
+	planQuery := `CREATE TABLE IF NOT EXISTS plan_list (
+		id            INTEGER      NOT NULL PRIMARY KEY AUTOINCREMENT,
+		plan_id       VARCHAR(64)  NOT NULL DEFAULT '',  -- 任务标识(关联 dev_visa_list.plan_id)
+		last_see_time VARCHAR(20)  NOT NULL DEFAULT '',  -- 上次检查时间戳
+		output        TEXT         NOT NULL DEFAULT ''   -- "时间戳1:online/offline,时间戳2:online/offline"
+	)`
+	if _, err := db.Exec(planQuery); err != nil {
+		log.Fatalf("创建 plan_list 表失败: %v", err)
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_plan_id ON plan_list(plan_id)")
+
 	// 兼容旧表：尝试添加新增字段（忽略已存在错误）
 	db.Exec("ALTER TABLE userdata ADD COLUMN code_lost_time TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE userdata ADD COLUMN status VARCHAR(8) NOT NULL DEFAULT 'ok'")
@@ -253,6 +287,40 @@ func createMySQLTables() {
 	)`
 	if _, err := db.Exec(tmpQuery); err != nil {
 		log.Fatalf("创建 tmp_biand 表失败: %v", err)
+	}
+
+	// 创建开发者入驻申请(visa)表
+	visaQuery := `CREATE TABLE IF NOT EXISTS dev_visa_list (
+		id             INTEGER      NOT NULL PRIMARY KEY AUTO_INCREMENT,
+		openid         VARCHAR(64)  NOT NULL DEFAULT '',
+		uid            INT          NOT NULL DEFAULT 0,
+		type           VARCHAR(16)  NOT NULL DEFAULT 'web',   -- web/javamc/cmc/none(其他)
+		other_type     VARCHAR(64)  NOT NULL DEFAULT '',      -- 选"其他"时填写的具体类型(需人工审核)
+		serverip       VARCHAR(64)  NOT NULL DEFAULT '',      -- 服务器请求出口 IP(仅 IPv4)
+		service_adderss VARCHAR(255) NOT NULL DEFAULT '',     -- 业务地址: IP:端口 或 域名
+		connect_type   VARCHAR(8)   NOT NULL DEFAULT 'http',  -- http / wsc(正向WS) / wss(反向WS)
+		tag            TEXT,                                 -- 业务备注
+		status         VARCHAR(8)   NOT NULL DEFAULT 'wait',  -- wait=审核中 / ok=已通过 / ice=删除冻结
+		end_time       VARCHAR(20)  NOT NULL DEFAULT '',      -- 审核结束时间戳(申请时间+1天)
+		admin_see      VARCHAR(8)   NOT NULL DEFAULT 'no',    -- yes/no 是否需要人工审核
+		plan_id        VARCHAR(64)  NOT NULL DEFAULT '',      -- 关联 plan_list.plan_id
+		INDEX idx_dev_visa_uid (uid),
+		INDEX idx_dev_visa_biz (serverip, service_adderss)
+	)`
+	if _, err := db.Exec(visaQuery); err != nil {
+		log.Fatalf("创建 dev_visa_list 表失败: %v", err)
+	}
+
+	// 创建计划任务(保活检测)表
+	planQuery := `CREATE TABLE IF NOT EXISTS plan_list (
+		id            INT          NOT NULL PRIMARY KEY AUTO_INCREMENT,
+		plan_id       VARCHAR(64)  NOT NULL DEFAULT '',  -- 任务标识(关联 dev_visa_list.plan_id)
+		last_see_time VARCHAR(20)  NOT NULL DEFAULT '',  -- 上次检查时间戳
+		output        TEXT,                              -- "时间戳1:online/offline,时间戳2:online/offline"
+		INDEX idx_plan_id (plan_id)
+	)`
+	if _, err := db.Exec(planQuery); err != nil {
+		log.Fatalf("创建 plan_list 表失败: %v", err)
 	}
 
 	// 兼容旧表：尝试添加新增字段

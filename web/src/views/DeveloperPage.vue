@@ -8,7 +8,6 @@ const router = useRouter()
 const loading = ref(true)
 const errorMsg = ref('') // 未登录 / 网络错误
 const levelOk = ref(false) // 验证等级 === 2 才有资格申请开发者
-const applyClicked = ref(false) // 「立即申请」目前为占位按钮，点击后提示
 
 // 进入页面再次请求 /api/me，按验证等级判断是否能申请开发者
 async function fetchMe() {
@@ -38,8 +37,9 @@ function goLogin() {
   router.push('/login')
 }
 
-function applyPlaceholder() {
-  applyClicked.value = true
+// 立即申请：跳转到开发者入驻申请页（协议弹窗 + 表单）
+function applyNow() {
+  router.push('/need_dev')
 }
 
 onMounted(fetchMe)
@@ -80,8 +80,7 @@ onMounted(fetchMe)
         <div class="status-icon">🛠️</div>
         <h1>您当前不是开发者，需要申请吗？</h1>
         <p class="dev-desc">成为开发者后即可接入 FanVerify OpenAPI，将微信动态验证码集成到你的应用（个人网站、论坛、Minecraft 服务器等）。</p>
-        <button v-if="!applyClicked" class="btn-primary" @click="applyPlaceholder">立即申请</button>
-        <p v-else class="dev-sub">🚧 申请功能正在开发中，敬请期待</p>
+        <button class="btn-primary" @click="applyNow">立即申请</button>
       </div>
     </div>
   </div>
