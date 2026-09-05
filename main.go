@@ -98,6 +98,11 @@ func main() {
 	// 启动账单定时任务（每月1日自动拉取）
 	handlers.StartBillScheduler()
 
+	// 开发者业务保活检测计划任务（.env 中 USER_PLAN_MODE=true 时启用）
+	if getEnv("USER_PLAN_MODE", "false") == "true" {
+		handlers.StartPlanChecker()
+	}
+
 	addr := ":" + port
 	log.Printf("FanVerify 后端服务启动，监听端口 %s", port)
 	log.Printf("API 地址: http://localhost%s/api/wx/code/openid", addr)

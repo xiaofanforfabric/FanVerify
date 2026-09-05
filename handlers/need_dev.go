@@ -161,7 +161,7 @@ func HandleNeedDevKey() http.HandlerFunc {
 		// 5. 业务查重：相同服务器出口IP + 相同业务地址（两个都要相同）→ 422
 		var dupCount int
 		err = db.QueryRow(
-			"SELECT COUNT(*) FROM dev_visa_list WHERE uid = ? AND serverip = ? AND service_adderss = ?",
+			"SELECT COUNT(*) FROM dev_visa_list WHERE uid = ? AND serverip = ? AND service_adderss = ? AND status <> 'fail'",
 			uid, d.ServerIP, d.ServiceAddr,
 		).Scan(&dupCount)
 		if err != nil {
@@ -191,7 +191,8 @@ func HandleNeedDevKey() http.HandlerFunc {
 
 		// 7. 额度检查：每个帐号最多 devVisaMax 个业务密钥 → 429
 		var quota int
-		err = db.QueryRow("SELECT COUNT(*) FROM dev_visa_list WHERE uid = ? AND status <> 'ice'", uid).Scan(&quota)
+		// 额度只计算进行中/已通过的申请（fail 未通过 / ice 已删除 不占额度）
+		err = db.QueryRow("SELECT COUNT(*) FROM dev_visa_list WHERE uid = ? AND status IN ('wait', 'ok')", uid).Scan(&quota)
 		if err != nil {
 			log.Printf("❌ 开发者申请: 额度查询失败: %v", err)
 			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "内部错误"})
