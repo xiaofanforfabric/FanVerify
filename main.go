@@ -77,6 +77,9 @@ func main() {
 	// 当前登录用户信息（Cookie JWT 鉴权）
 	mux.HandleFunc("/api/me", handlers.CorsMiddleware(handlers.HandleMe()))
 
+	// 退出登录（清除 HttpOnly 登录 Cookie，幂等）
+	mux.HandleFunc("/api/logout", handlers.CorsMiddleware(handlers.HandleLogout()))
+
 	// 公开法律条款（用户协议 / 隐私政策，纯文本）
 	mux.HandleFunc("/api/legal/agreement", handlers.CorsMiddleware(handlers.HandleLegalAgreement()))
 	mux.HandleFunc("/api/legal/privacy", handlers.CorsMiddleware(handlers.HandleLegalPrivacy()))

@@ -67,6 +67,17 @@ function goMenu(path: string) {
   router.push(path)
 }
 
+// 退出登录：HttpOnly Cookie 前端删不掉，须调用后端 /api/logout 清除
+async function goLogout() {
+  menuOpen.value = false
+  try {
+    await fetch(API_BASE + '/api/logout', { method: 'POST', credentials: 'include' })
+  } catch (e) {
+    console.error('退出登录请求失败:', e)
+  }
+  router.push('/')
+}
+
 onMounted(fetchMe)
 </script>
 
@@ -87,6 +98,7 @@ onMounted(fetchMe)
         <div v-if="menuOpen" class="menu-dropdown">
           <div class="menu-item" @click="goMenu('/user')">👤 用户中心</div>
           <div class="menu-item" @click="goMenu('/developer')">🛠️ 开发者页面</div>
+          <div class="menu-item danger" @click="goLogout">🚪 退出登录</div>
         </div>
       </div>
     </nav>
@@ -239,6 +251,14 @@ onMounted(fetchMe)
 
 .menu-item:hover {
   background: #f3f4f6;
+}
+
+.menu-item.danger {
+  color: #dc2626;
+}
+
+.menu-item.danger:hover {
+  background: #fef2f2;
 }
 
 .menu-item + .menu-item {

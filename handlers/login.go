@@ -469,3 +469,17 @@ func clearAuthCookie(w http.ResponseWriter) {
 		SameSite: http.SameSiteLaxMode,
 	})
 }
+
+// HandleLogout 退出登录接口
+// 幂等：无论是否已登录都清除 Cookie 并返回成功（前端 JS 无法删除 HttpOnly Cookie，必须由后端清除）
+func HandleLogout() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, ApiResponse{Success: false, Error: "仅支持 POST 请求"})
+			return
+		}
+		clearAuthCookie(w)
+		log.Printf("🚪 用户退出登录，已清除 Cookie")
+		writeJSON(w, http.StatusOK, ApiResponse{Success: true, Error: ""})
+	}
+}
