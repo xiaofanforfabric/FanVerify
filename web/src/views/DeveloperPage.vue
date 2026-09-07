@@ -7,19 +7,21 @@ const API_BASE = 'https://api.fanverify.cn'
 const router = useRouter()
 const loading = ref(true)
 const errorMsg = ref('') // 未登录 / 网络错误
-const isDev = ref(false) // 是否已是开发者（有密钥或审核中的申请）
-const level = ref(0) // 用户验证等级
-const devKey = ref<DevKeyItem[]>([]) // 所有可用密钥
-const devVisa = ref<DevVisaItem[]>([]) // 所有审核中的申请
+const isDev = ref(false)
+const level = ref(0)
+const devKey = ref<DevKeyItem[]>([])
+const devVisa = ref<DevVisaItem[]>([])
 
 interface DevKeyItem {
   id: number
   devaccesstoken: string
   nel: number
+  buid: number
   bip: string
   mode: string
   sme: string
   status: string
+  date_of_issue: string
 }
 interface DevVisaItem {
   id: number
@@ -33,9 +35,10 @@ interface DevVisaItem {
   end_time: string
   admin_see: string
   plan_id: string | null
+  online: number // 保活检测成功(在线)次数
+  offline: number // 保活检测失败(离线)次数
 }
 
-// 进入页面请求 /api/user/isdev：一次性拿到「是否开发者 + 等级 + 可用密钥 + 审核中的申请」
 async function fetchIsDev() {
   loading.value = true
   errorMsg.value = ''
@@ -68,9 +71,6 @@ function typeLabel(t: string): string {
 function connLabel(c: string): string {
   return ({ http: 'HTTP', wsc: '正向 WS', wss: '反向 WS' } as any)[c] || c || '—'
 }
-function shortToken(t: string): string {
-  return t ? t.slice(0, 16) + '…' : ''
-}
 function fmtTime(ms: string): string {
   const t = new Date(Number(ms))
   if (isNaN(t.getTime())) return ms || '—'
@@ -78,10 +78,83 @@ function fmtTime(ms: string): string {
   return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`
 }
 
+// 复制密钥（完整展示 + 一键复制）
+const copiedToken = ref('')
+async function copyToken(k: DevKeyItem) {
+  const text = k.devaccesstoken
+  try {
+    await navigator.clipboard.writeText(text)
+    copiedToken.value = text
+    setTimeout(() => {
+      if (copiedToken.value === text) copiedToken.value = ''
+    }, 1600)
+  } catch (e) {
+    console.error('clipboard 失败，使用降级方案:', e)
+    const ta = document.createElement('textarea')
+    ta.value = text
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+      copiedToken.value = text
+      setTimeout(() => {
+        if (copiedToken.value === text) copiedToken.value = ''
+      }, 1600)
+    } catch (_) {}
+    document.body.removeChild(ta)
+  }
+}
+
+// 修改密钥要求验证等级（1/2）
+const editKey = ref<DevKeyItem | null>(null)
+const editLevel = ref(1)
+const editBusy = ref(false)
+const editMsg = ref('')
+
+function openEdit(k: DevKeyItem) {
+  editKey.value = k
+  editLevel.value = k.nel === 2 ? 2 : 1
+  editMsg.value = ''
+}
+function closeEdit() {
+  editKey.value = null
+  editBusy.value = false
+  editMsg.value = ''
+}
+async function submitEdit() {
+  if (!editKey.value) return
+  editBusy.value = true
+  editMsg.value = ''
+  try {
+    const res = await fetch(API_BASE + '/api/dev/editdevkey', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        token: '',
+        devkey: editKey.value.devaccesstoken,
+        new_need_leve: String(editLevel.value),
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.success) {
+      if (editKey.value) editKey.value.nel = Number(editLevel.value)
+      closeEdit()
+    } else {
+      editMsg.value = data.error || `操作失败 (${res.status})`
+      if (res.status === 401) setTimeout(() => router.push('/login'), 1200)
+    }
+  } catch (e) {
+    console.error('修改密钥等级失败:', e)
+    editMsg.value = '网络错误，请稍后重试'
+  } finally {
+    editBusy.value = false
+  }
+}
+
 function goLogin() {
   router.push('/login')
 }
-// 立即申请 / 申请新业务：进入开发者入驻申请页（协议弹窗 + 表单）
 function applyNow() {
   router.push('/need_dev')
 }
@@ -112,50 +185,89 @@ onMounted(fetchIsDev)
         <button class="btn-primary" @click="goLogin">去登录</button>
       </div>
 
-      <!-- 已是开发者：有可用密钥 或 有审核中的申请 -->
+      <!-- ===== 已是开发者：列表式控制台 ===== -->
       <div v-else-if="isDev" class="dev-stack">
-        <div class="dev-card status-card">
-          <div class="status-icon">🛠️</div>
-          <h1>您已是开发者</h1>
-          <p class="dev-desc">以下是您的业务密钥与申请进度。密钥管理功能正在开发中。</p>
-          <div class="chips">
-            <span class="chip">🔑 可用密钥 {{ devKey.length }}</span>
-            <span class="chip">📋 审核中的申请 {{ devVisa.length }}</span>
+        <!-- 概览条 -->
+        <div class="dev-hero">
+          <div class="hero-left">
+            <div class="hero-icon">🛠️</div>
+            <div>
+              <h1>开发者控制台</h1>
+              <p class="hero-sub">管理你的业务密钥与入驻申请</p>
+            </div>
           </div>
-          <button class="btn-primary" @click="applyNow">申请新业务</button>
+          <button class="btn-primary btn-sm" @click="applyNow">＋ 申请新业务</button>
         </div>
 
-        <div v-if="devKey.length" class="dev-card list-card">
-          <h2 class="list-title">🔑 可用密钥</h2>
-          <div v-for="k in devKey" :key="k.id" class="row-item">
-            <div class="row-main">
-              <span class="badge mode">{{ k.mode || 'HTTP' }}</span>
-              <span class="row-token mono">{{ shortToken(k.devaccesstoken) }}</span>
+        <!-- 可用密钥列表 -->
+        <div class="dev-card list-card">
+          <div class="list-head">
+            <h2 class="list-title">🔑 可用密钥</h2>
+            <span class="list-count">{{ devKey.length }}/10</span>
+          </div>
+          <p v-if="!devKey.length" class="empty-tip">暂无可用密钥</p>
+          <div v-for="k in devKey" :key="k.id" class="key-row">
+            <div class="key-head">
+              <div class="key-badges">
+                <span class="badge mode">{{ k.mode || 'HTTP' }}</span>
+                <span v-if="k.status === 'ok'" class="badge ok">正常</span>
+              </div>
+              <div class="key-actions">
+                <button class="btn-mini copy" @click="copyToken(k)">
+                  {{ copiedToken === k.devaccesstoken ? '✓ 已复制' : '📋 复制密钥' }}
+                </button>
+                <button class="btn-mini" @click="openEdit(k)">改等级 · Lv.{{ k.nel }}</button>
+              </div>
             </div>
+            <div class="key-token mono">{{ k.devaccesstoken }}</div>
             <p v-if="k.sme" class="row-sub">{{ k.sme }}</p>
-            <p class="row-meta">绑定 IP：{{ k.bip || '不限制' }} · 最低等级 Lv.{{ k.nel }}</p>
+            <p class="row-meta">绑定 IP：{{ k.bip || '不限制' }} · 要求用户等级 Lv.{{ k.nel }} · 签发于 {{ fmtTime(k.date_of_issue) }}</p>
           </div>
         </div>
 
-        <div v-if="devVisa.length" class="dev-card list-card">
-          <h2 class="list-title">📋 审核中的申请</h2>
-          <div v-for="v in devVisa" :key="v.id" class="row-item">
-            <div class="row-main">
-              <span class="badge type">{{ typeLabel(v.type) }}</span>
-              <span class="badge conn">{{ connLabel(v.connect_type) }}</span>
-              <span v-if="v.type === 'none' && v.other_type" class="row-token">{{ v.other_type }}</span>
+        <!-- 审核中的申请列表 -->
+        <div class="dev-card list-card">
+          <div class="list-head">
+            <h2 class="list-title">📋 审核中的申请</h2>
+            <span class="list-count">{{ devVisa.length }}</span>
+          </div>
+          <p v-if="!devVisa.length" class="empty-tip">暂无审核中的申请</p>
+          <div v-for="v in devVisa" :key="v.id" class="visa-row">
+            <div class="key-head">
+              <div class="key-badges">
+                <span class="badge type">{{ typeLabel(v.type) }}</span>
+                <span class="badge conn">{{ connLabel(v.connect_type) }}</span>
+                <span v-if="v.type === 'none' && v.other_type" class="badge other">{{ v.other_type }}</span>
+              </div>
               <span v-if="v.admin_see === 'yes'" class="badge admin">人工审核</span>
+              <span v-else class="badge waiting">保活检测中</span>
             </div>
-            <p class="row-sub mono">{{ v.serverip }} → {{ v.service_adderss }}</p>
-            <p v-if="v.tag" class="row-meta">{{ v.tag }}</p>
+            <p class="key-sub mono">{{ v.serverip }} → {{ v.service_adderss }}</p>
+            <p v-if="v.tag" class="row-sub">{{ v.tag }}</p>
+
+            <!-- 自动保活检测进度：绿=在线 红=离线 -->
+            <div v-if="v.admin_see !== 'yes'" class="prog-block">
+              <div class="prog-bar">
+                <span class="prog-ok" :style="{ width: Math.min(100, (v.online / 12) * 100) + '%' }"></span>
+                <span class="prog-bad" :style="{ width: Math.min(100, (v.offline / 12) * 100) + '%' }"></span>
+              </div>
+              <div class="prog-text">
+                <span class="prog-on">🟢 在线 {{ v.online }}</span>
+                <span class="prog-off">🔴 离线 {{ v.offline }}</span>
+                <span class="prog-total">已检测 {{ v.online + v.offline }}/12 次</span>
+                <span v-if="v.online + v.offline >= 12" class="prog-total"> · 满 12 次后将自动结算</span>
+              </div>
+            </div>
+            <p v-else class="row-meta">⏳ 该申请由人工审核，请耐心等待通知</p>
+
             <p class="row-meta">预计审核结束：{{ fmtTime(v.end_time) }}</p>
           </div>
         </div>
 
-        <p class="dev-note">💡 每个帐号最多可创建 10 个业务密钥，审核等待期间与删除后 3 天内无法重复申请相同业务。</p>
+        <p class="dev-note">💡 每个帐号最多 10 个业务密钥；申请将进行 12 次保活检测（每 2 小时一次），在线 ≥8 次即通过并自动颁发密钥。人工审核类（其他）除外。</p>
       </div>
 
-      <!-- 不是开发者 -->
+      <!-- ===== 不是开发者 ===== -->
       <template v-else>
         <!-- 验证等级不是 2：无申请资格 -->
         <div v-if="level < 2" class="dev-card status-card">
@@ -172,6 +284,31 @@ onMounted(fetchIsDev)
           <button class="btn-primary" @click="applyNow">立即申请</button>
         </div>
       </template>
+    </div>
+
+    <!-- 修改密钥验证等级弹窗 -->
+    <div v-if="editKey" class="modal-mask">
+      <div class="modal-box">
+        <h3 class="modal-title">修改密钥要求验证等级</h3>
+        <p class="row-meta mono modal-token">{{ editKey.devaccesstoken }}</p>
+        <div class="opt-group">
+          <label class="opt" :class="{ sel: editLevel === 1 }">
+            <input v-model="editLevel" type="radio" :value="1" />
+            <span class="opt-name">Lv.1</span>
+            <span class="opt-desc">普通用户即可完成验证</span>
+          </label>
+          <label class="opt" :class="{ sel: editLevel === 2 }">
+            <input v-model="editLevel" type="radio" :value="2" />
+            <span class="opt-name">Lv.2</span>
+            <span class="opt-desc">需手机号二级认证的用户</span>
+          </label>
+        </div>
+        <p v-if="editMsg" class="form-error">{{ editMsg }}</p>
+        <div class="modal-actions">
+          <button class="btn-ghost" @click="closeEdit">取消</button>
+          <button class="btn-primary" :disabled="editBusy" @click="submitEdit">{{ editBusy ? '保存中…' : '保存' }}</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -267,10 +404,20 @@ onMounted(fetchIsDev)
   cursor: pointer;
 }
 
-/* 已是开发者视图 */
+/* 已是开发者视图：样式见下方“列表式控制台”段落 */
+.dev-note {
+  font-size: 12px;
+  color: #9ca3af;
+  line-height: 1.7;
+  text-align: center;
+  margin: 0;
+  padding: 0 8px;
+}
+
+/* ===== 列表式控制台 ===== */
 .dev-stack {
   width: 100%;
-  max-width: 540px;
+  max-width: 640px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -278,51 +425,116 @@ onMounted(fetchIsDev)
 }
 
 .dev-stack .dev-card {
-  max-width: 540px;
+  max-width: 640px;
   box-sizing: border-box;
+}
+
+.dev-hero {
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(102, 126, 234, 0.25);
+  padding: 22px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.hero-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hero-icon {
+  font-size: 36px;
+}
+
+.dev-hero h1 {
+  font-size: 19px;
+  margin: 0 0 4px;
+}
+
+.hero-sub {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.btn-primary.btn-sm {
+  padding: 10px 18px;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
 .dev-card.list-card {
   text-align: left;
-  padding: 24px;
+  padding: 22px 24px;
+}
+
+.list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
 }
 
 .list-title {
   font-size: 16px;
-  margin: 0 0 4px;
+  margin: 0;
 }
 
-.chips {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  margin-bottom: 22px;
-  flex-wrap: wrap;
-}
-
-.chip {
+.list-count {
+  font-size: 12px;
+  color: #9ca3af;
   background: #f3f4f6;
-  color: #374151;
   border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 600;
+  padding: 3px 10px;
 }
 
-.row-item {
+.empty-tip {
+  color: #9ca3af;
+  font-size: 13px;
+  text-align: center;
+  padding: 18px 0;
+  margin: 0;
+}
+
+.key-row,
+.visa-row {
   padding: 14px 0;
   border-top: 1px solid #f3f4f6;
 }
 
-.row-item:first-child {
+.key-row:first-of-type,
+.visa-row:first-of-type {
   border-top: none;
 }
 
-.row-main {
+.key-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
   flex-wrap: wrap;
+}
+
+.key-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.key-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .badge {
@@ -347,18 +559,47 @@ onMounted(fetchIsDev)
   color: #15803d;
 }
 
+.badge.other {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.badge.ok {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
 .badge.admin {
   background: #fef3c7;
   color: #b45309;
 }
 
-.row-token {
-  font-size: 12px;
-  color: #6b7280;
+.badge.waiting {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.key-token {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  color: #1f2937;
+  background: #f8fafc;
+  border: 1px dashed #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  word-break: break-all;
+  user-select: all;
+}
+
+.key-sub {
+  margin: 8px 0 2px;
+  font-size: 13px;
+  color: #374151;
+  word-break: break-all;
 }
 
 .row-sub {
-  margin: 6px 0 2px;
+  margin: 4px 0 2px;
   font-size: 13px;
   color: #374151;
   word-break: break-all;
@@ -376,12 +617,170 @@ onMounted(fetchIsDev)
   font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
 }
 
-.dev-note {
+.btn-mini {
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #4f46e5;
+  transition: background 0.15s;
+}
+
+.btn-mini:hover {
+  background: #eef2ff;
+}
+
+.btn-mini.copy {
+  color: #059669;
+}
+
+.btn-mini.copy:hover {
+  background: #ecfdf5;
+}
+
+/* 检测进度条 */
+.prog-block {
+  margin-top: 10px;
+}
+
+.prog-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  overflow: hidden;
+  display: flex;
+}
+
+.prog-ok {
+  height: 100%;
+  background: linear-gradient(90deg, #34d399, #10b981);
+  transition: width 0.3s;
+}
+
+.prog-bad {
+  height: 100%;
+  background: linear-gradient(90deg, #fca5a5, #ef4444);
+  transition: width 0.3s;
+}
+
+.prog-text {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.prog-on {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.prog-off {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.prog-total {
+  color: #9ca3af;
+}
+
+/* 改等级弹窗 */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+
+.modal-box {
+  width: 100%;
+  max-width: 400px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  padding: 24px;
+}
+
+.modal-title {
+  font-size: 17px;
+  margin: 0 0 8px;
+}
+
+.modal-token {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin: 0 0 14px;
+  word-break: break-all;
+}
+
+.opt-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.opt input {
+  accent-color: #667eea;
+}
+
+.opt .opt-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.opt .opt-desc {
   font-size: 12px;
   color: #9ca3af;
-  line-height: 1.7;
-  text-align: center;
-  margin: 0;
-  padding: 0 8px;
+  margin-left: auto;
+  text-align: right;
+}
+
+.opt.sel {
+  border-color: #667eea;
+  background: #f5f6ff;
+}
+
+.form-error {
+  color: #dc2626;
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.btn-ghost {
+  padding: 10px 22px;
+  background: #fff;
+  color: #374151;
+  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
 }
 </style>

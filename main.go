@@ -86,6 +86,9 @@ func main() {
 	// 开发者状态查询（是否开发者 + 可用密钥 + 审核中的申请）
 	mux.HandleFunc("/api/user/isdev", handlers.CorsMiddleware(handlers.HandleIsDev()))
 
+	// 修改开发者密钥要求验证等级（本人持有的可用密钥）
+	mux.HandleFunc("/api/dev/editdevkey", handlers.CorsMiddleware(handlers.HandleEditDevKey()))
+
 	// 公开法律条款（用户协议 / 隐私政策 / 开发者服务协议 / 开发者隐私政策，纯文本）
 	mux.HandleFunc("/api/legal/agreement", handlers.CorsMiddleware(handlers.HandleLegalAgreement()))
 	mux.HandleFunc("/api/legal/privacy", handlers.CorsMiddleware(handlers.HandleLegalPrivacy()))

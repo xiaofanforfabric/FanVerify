@@ -33,6 +33,8 @@ type DevVisaInfo struct {
 	EndTime     string  `json:"end_time"`
 	AdminSee    string  `json:"admin_see"`
 	PlanID      *string `json:"plan_id"` // NULL = 人工审核（无自动保活检测）
+	Online      int     `json:"online"`  // 保活检测成功(在线)次数
+	Offline     int     `json:"offline"` // 保活检测失败(离线)次数
 }
 
 // IsDevResponse 开发者状态查询响应
@@ -111,10 +113,13 @@ func HandleIsDev() http.HandlerFunc {
 		}
 		rows.Close()
 
-		// 2. 审核中的申请：dev_visa_list 中该 uid 名下 status = 'wait'
+		// 2. 审核中的申请：dev_visa_list 中该 uid 名下 status = 'wait'（LEFT JOIN 关联计划任务取检测进度）
 		rows2, err := db.Query(
-			`SELECT id, type, other_type, serverip, service_adderss, connect_type, tag, status, end_time, admin_see, plan_id
-			 FROM dev_visa_list WHERE uid = ? AND status = 'wait' ORDER BY id DESC`,
+			`SELECT v.id, v.type, v.other_type, v.serverip, v.service_adderss, v.connect_type, v.tag,
+			        v.status, v.end_time, v.admin_see, v.plan_id, p.output
+			 FROM dev_visa_list v
+			 LEFT JOIN plan_list p ON p.plan_id = v.plan_id
+			 WHERE v.uid = ? AND v.status = 'wait' ORDER BY v.id DESC`,
 			uid,
 		)
 		if err != nil {
@@ -124,14 +129,20 @@ func HandleIsDev() http.HandlerFunc {
 		}
 		for rows2.Next() {
 			var v DevVisaInfo
-			var planID sql.NullString
-			if err := rows2.Scan(&v.ID, &v.Type, &v.OtherType, &v.ServerIP, &v.ServiceAddr, &v.ConnectType, &v.Tag, &v.Status, &v.EndTime, &v.AdminSee, &planID); err != nil {
+			var planID, output sql.NullString
+			if err := rows2.Scan(&v.ID, &v.Type, &v.OtherType, &v.ServerIP, &v.ServiceAddr, &v.ConnectType, &v.Tag, &v.Status, &v.EndTime, &v.AdminSee, &planID, &output); err != nil {
 				log.Printf("⚠️ 开发者状态查询: 读取 dev_visa_list 行失败: %v", err)
 				continue
 			}
 			if planID.Valid {
 				pid := planID.String
 				v.PlanID = &pid
+			}
+			// 解析保活检测进度：绿色=成功(在线)次数，红色=失败(离线)次数
+			if output.Valid && output.String != "" {
+				total, okCount := parsePlanOutput(output.String)
+				v.Online = okCount
+				v.Offline = total - okCount
 			}
 			resp.DevVisa = append(resp.DevVisa, v)
 		}
