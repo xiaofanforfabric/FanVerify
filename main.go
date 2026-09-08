@@ -64,6 +64,7 @@ func main() {
 		log.Println("⚠️ DEBUG 模式已启用")
 		mux.HandleFunc("/api/debug/adddev", handlers.CorsMiddleware(handlers.HandleDebugAddDev()))
 		mux.HandleFunc("/api/debug/adddev/web/", handlers.HandleDebugWebUI())
+		mux.HandleFunc("/api/debug/send_email", handlers.CorsMiddleware(handlers.HandleDebugSendEmail()))
 	} else {
 		// 非 DEBUG 模式，拦截所有 debug 路由
 		mux.HandleFunc("/api/debug/adddev", handlers.Handle404Debug())
@@ -85,6 +86,9 @@ func main() {
 
 	// 开发者状态查询（是否开发者 + 可用密钥 + 审核中的申请）
 	mux.HandleFunc("/api/user/isdev", handlers.CorsMiddleware(handlers.HandleIsDev()))
+
+	// 绑定/更换联系邮箱（POST 发码 + GET 校验绑定，腾讯云 SES 邮件验证码）
+	mux.HandleFunc("/api/user/update_address", handlers.CorsMiddleware(handlers.HandleUpdateAddress()))
 
 	// 修改开发者密钥要求验证等级（本人持有的可用密钥）
 	mux.HandleFunc("/api/dev/editdevkey", handlers.CorsMiddleware(handlers.HandleEditDevKey()))

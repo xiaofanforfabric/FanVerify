@@ -18,6 +18,8 @@ const user = ref<{
 } | null>(null)
 const ip = ref('')
 const lostTime = ref('')
+const email = ref('') // 已绑定联系邮箱
+const qq = ref('') // 已绑定 QQ(预留)
 
 async function fetchMe() {
   loading.value = true
@@ -35,6 +37,8 @@ async function fetchMe() {
       user.value = data.userdata[0]
       ip.value = data.ip || ''
       lostTime.value = data.lost_time || ''
+      email.value = data.email || ''
+      qq.value = data.qq || ''
       loading.value = false
     } else {
       throw new Error('数据格式错误')
@@ -55,6 +59,11 @@ function formatTime(ms: string): string {
 
 function goLogin() {
   router.push('/login')
+}
+
+// 前往绑定/更换邮箱页
+function goBindEmail() {
+  router.push('/bind_email')
 }
 
 // 汉堡菜单
@@ -132,6 +141,17 @@ onMounted(fetchMe)
           <div class="info-row">
             <span class="info-key">UID</span>
             <span class="info-val">#{{ user.uid }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-key">联系邮箱</span>
+            <span v-if="email" class="info-val">
+              {{ email }}
+              <a class="mini-link" @click="goBindEmail">更换</a>
+            </span>
+            <span v-else class="info-val">
+              <span class="unbound">未绑定</span>
+              <a class="mini-link" @click="goBindEmail">去绑定</a>
+            </span>
           </div>
           <div class="info-row">
             <span class="info-key">等级</span>
@@ -384,5 +404,17 @@ onMounted(fetchMe)
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.mini-link {
+  color: #4f46e5;
+  font-size: 13px;
+  cursor: pointer;
+  margin-left: 8px;
+  text-decoration: underline;
+}
+
+.unbound {
+  color: #9ca3af;
 }
 </style>

@@ -219,6 +219,9 @@ func settlePlan(r PlanVisaResult, planID, connType string) {
 	// 删除该计划任务（测满 12 次即终止）
 	db.Exec("DELETE FROM plan_list WHERE plan_id = ?", planID)
 
+	// 通过已绑定邮箱通知开发者申请结果（保活检测自动邮件）
+	sendDevSettleEmail(r)
+
 	// 触发广播（供后续通知模块使用）
 	if OnPlanVisaSettled != nil {
 		go func() {

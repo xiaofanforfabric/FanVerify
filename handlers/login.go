@@ -39,9 +39,11 @@ type JWTClaims struct {
 
 // LoginResponse 登录成功响应
 type LoginResponse struct {
-	UserData []User `json:"userdata"`  // 用户信息
-	IP       string `json:"ip"`        // 客户端 IP
-	LostTime string `json:"lost_time"` // JWT 过期时间（Unix 毫秒）
+	UserData []User `json:"userdata"`       // 用户信息
+	IP       string `json:"ip"`             // 客户端 IP
+	LostTime string `json:"lost_time"`      // JWT 过期时间（Unix 毫秒）
+	Email    string `json:"email,omitempty"` // 已绑定的联系邮箱
+	QQ       string `json:"qq,omitempty"`    // 已绑定的 QQ(预留)
 }
 
 // defaultJWTExpire JWT 默认有效期 7 天
@@ -444,14 +446,21 @@ func HandleMe() http.HandlerFunc {
 			return
 		}
 
+		uid := claims.UserData[0].UID
 		resp := LoginResponse{
 			UserData: claims.UserData,
 			IP:       clientIP(r),
 			LostTime: strconv.FormatInt(claims.EXP*1000, 10),
 		}
+		// 补充最新联系方式（JWT 自包含数据不含 email/qq，此处实时查库返回）
+		var email, qq string
+		if err := db.QueryRow("SELECT email, qq FROM userdata WHERE UID = ?", uid).Scan(&email, &qq); err == nil {
+			resp.Email = email
+			resp.QQ = qq
+		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(resp)
-		log.Printf("✅ 查询当前用户: UID=%d (JWT 自包含)", claims.UserData[0].UID)
+		log.Printf("✅ 查询当前用户: UID=%d (JWT 自包含)", uid)
 	}
 }
 

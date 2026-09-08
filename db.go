@@ -83,7 +83,9 @@ func createSQLiteTables() {
 		code_lost_time TEXT        NOT NULL DEFAULT '',
 		status        VARCHAR(8)   NOT NULL DEFAULT 'ok',
 		tag           VARCHAR(64)  NOT NULL DEFAULT '',
-		openid        VARCHAR(64)  NOT NULL DEFAULT ''
+		openid        VARCHAR(64)  NOT NULL DEFAULT '',
+		qq            VARCHAR(64)  NOT NULL DEFAULT '',   -- 联系 QQ(预留，暂未开放绑定)
+		email         VARCHAR(64)  NOT NULL DEFAULT ''    -- 联系邮箱(绑定后用于重要通知)
 	)`
 	if _, err := db.Exec(query); err != nil {
 		log.Fatalf("创建 userdata 表失败: %v", err)
@@ -135,14 +137,18 @@ func createSQLiteTables() {
 		log.Fatalf("创建 tagdata 表失败: %v", err)
 	}
 
-	// 创建升级二级验证临时表（手机号短信验证码）
+	// 兼容早期库：tmp_biand 需支持 email/phone 可空（手机或邮箱二选一）→ 旧结构时重建空表
+	ensureSQLiteTmpBiandCompat()
+
+	// 创建升级/联系方式绑定临时表（手机号 或 邮箱 二选一验证码）
 	tmpQuery := `CREATE TABLE IF NOT EXISTS tmp_biand (
 		id             INTEGER      NOT NULL PRIMARY KEY AUTOINCREMENT,
 		openid         VARCHAR(64)  NOT NULL DEFAULT '',  -- 微信 openid
-		phone          VARCHAR(20)  NOT NULL DEFAULT '',  -- 目标手机号
+		phone          VARCHAR(20)  DEFAULT NULL,         -- 目标手机号(绑定手机号时填写)
+		email          VARCHAR(64)  DEFAULT NULL,         -- 目标邮箱(绑定邮箱时填写)
 		session_token  VARCHAR(64)  NOT NULL DEFAULT '',  -- 验证会话令牌
 		lost_time      VARCHAR(20)  NOT NULL DEFAULT '',  -- 验证码重发限制过期戳(60s)
-		pass_code      VARCHAR(6)   NOT NULL DEFAULT '',  -- 短信验证码
+		pass_code      VARCHAR(6)   NOT NULL DEFAULT '',  -- 验证码(短信/邮件)
 		pass_lost_time VARCHAR(20)  NOT NULL DEFAULT '',  -- 验证码过期戳(5min)
 		create_time    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`
@@ -191,6 +197,8 @@ func createSQLiteTables() {
 	// 兼容旧表：尝试添加新增字段（忽略已存在错误）
 	db.Exec("ALTER TABLE userdata ADD COLUMN code_lost_time TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE userdata ADD COLUMN status VARCHAR(8) NOT NULL DEFAULT 'ok'")
+	db.Exec("ALTER TABLE userdata ADD COLUMN qq VARCHAR(64) NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE userdata ADD COLUMN email VARCHAR(64) NOT NULL DEFAULT ''")
 
 	// 兼容 otpdata 表：添加 devaccesstoken 字段
 	db.Exec("ALTER TABLE otpdata ADD COLUMN devaccesstoken TEXT DEFAULT ''")
@@ -216,7 +224,9 @@ func createMySQLTables() {
 		code_lost_time VARCHAR(20)  NOT NULL DEFAULT '',
 		status        VARCHAR(8)   NOT NULL DEFAULT 'ok',
 		tag           VARCHAR(64)  NOT NULL DEFAULT '',
-		openid        VARCHAR(64)  NOT NULL DEFAULT ''
+		openid        VARCHAR(64)  NOT NULL DEFAULT '',
+		qq            VARCHAR(64)  NOT NULL DEFAULT '',   -- 联系 QQ(预留，暂未开放绑定)
+		email         VARCHAR(64)  NOT NULL DEFAULT ''    -- 联系邮箱(绑定后用于重要通知)
 	) AUTO_INCREMENT = 100000`
 	if _, err := db.Exec(query); err != nil {
 		log.Fatalf("创建 userdata 表失败: %v", err)
@@ -276,11 +286,12 @@ func createMySQLTables() {
 		log.Fatalf("创建 tagdata 表失败: %v", err)
 	}
 
-	// 创建升级二级验证临时表（手机号短信验证码）
+	// 创建升级/联系方式绑定临时表（手机号 或 邮箱 二选一验证码）
 	tmpQuery := `CREATE TABLE IF NOT EXISTS tmp_biand (
 		id             INT          NOT NULL PRIMARY KEY AUTO_INCREMENT,
 		openid         VARCHAR(64)  NOT NULL DEFAULT '',
-		phone          VARCHAR(20)  NOT NULL DEFAULT '',
+		phone          VARCHAR(20)  DEFAULT NULL,
+		email          VARCHAR(64)  DEFAULT NULL,
 		session_token  VARCHAR(64)  NOT NULL DEFAULT '',
 		lost_time      VARCHAR(20)  NOT NULL DEFAULT '',
 		pass_code      VARCHAR(6)   NOT NULL DEFAULT '',
@@ -332,6 +343,8 @@ func createMySQLTables() {
 	// 兼容旧表：尝试添加新增字段
 	db.Exec("ALTER TABLE userdata ADD COLUMN code_lost_time TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE userdata ADD COLUMN status VARCHAR(8) NOT NULL DEFAULT 'ok'")
+	db.Exec("ALTER TABLE userdata ADD COLUMN qq VARCHAR(64) NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE userdata ADD COLUMN email VARCHAR(64) NOT NULL DEFAULT ''")
 
 	// 兼容 otpdata 表：添加 devaccesstoken 字段
 	db.Exec("ALTER TABLE otpdata ADD COLUMN devaccesstoken VARCHAR(128) DEFAULT ''")
@@ -351,6 +364,14 @@ func createMySQLTables() {
 		db.Exec("ALTER TABLE otpdata ADD INDEX idx_uid (UID)")
 		log.Println("✅ otpdata 表结构已修复")
 	}
+
+	// 兼容 tmp_biand 表：确保 email 列存在、phone 允许 NULL（手机或邮箱二选一绑定）
+	var tbEmailCount int
+	_ = db.QueryRow("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tmp_biand' AND COLUMN_NAME = 'email'").Scan(&tbEmailCount)
+	if tbEmailCount == 0 {
+		db.Exec("ALTER TABLE tmp_biand ADD COLUMN email VARCHAR(64) DEFAULT NULL")
+	}
+	db.Exec("ALTER TABLE tmp_biand MODIFY phone VARCHAR(20) DEFAULT NULL")
 
 	// 确保 UID 从 100000 开始（即使是已存在的表）
 	db.Exec("ALTER TABLE userdata AUTO_INCREMENT = 100000")
@@ -378,6 +399,37 @@ func dropLegacyVisaTablesIfNotNull() {
 		log.Println("⚠️ dev_visa_list 旧定义为 plan_id NOT NULL，重建为空表以支持 NULL（表无正式数据）")
 		db.Exec("DROP TABLE IF EXISTS dev_visa_list")
 		db.Exec("DROP TABLE IF EXISTS plan_list")
+	}
+}
+
+// ensureSQLiteTmpBiandCompat 兼容早期库：tmp_biand 需含 email 列且 phone 允许 NULL
+// （绑定手机或邮箱二选一）。旧结构不满足时重建空表（tmp_biand 仅存一次性验证会话，无正式数据）。
+func ensureSQLiteTmpBiandCompat() {
+	rows, err := db.Query("PRAGMA table_info(tmp_biand)")
+	if err != nil {
+		return // 表不存在，由后续 CREATE 建新表
+	}
+	needDrop := false
+	hasEmail := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ, dflt sql.NullString
+		if rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk) == nil {
+			if name.String == "phone" && notnull == 1 {
+				needDrop = true
+			}
+			if name.String == "email" {
+				hasEmail = true
+			}
+		}
+	}
+	rows.Close()
+	if !hasEmail {
+		needDrop = true
+	}
+	if needDrop {
+		log.Println("⚠️ tmp_biand 旧结构需支持 email/可空，重建为空表（表仅存一次性验证会话）")
+		db.Exec("DROP TABLE IF EXISTS tmp_biand")
 	}
 }
 

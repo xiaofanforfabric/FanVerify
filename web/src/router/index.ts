@@ -33,6 +33,11 @@ const router = createRouter({
       name: 'need_dev',
       component: () => import('../views/NeedDevPage.vue'),
     },
+    {
+      path: '/bind_email',
+      name: 'bind_email',
+      component: () => import('../views/BindEmailPage.vue'),
+    },
   ],
 })
 
