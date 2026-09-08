@@ -69,6 +69,12 @@ func nowText() string {
 	return time.Now().Format("2006-01-02 15:04")
 }
 
+// RegisterEmailBroadcast 注册“申请结算→邮件通知”广播订阅者（main 启动时调用一次）
+// 申请结算后会自动尝试向开发者绑定的邮箱发送通过/未通过通知；未绑定有效邮箱时记录日志并跳过。
+func RegisterEmailBroadcast() {
+	RegisterPlanVisaNotifier(sendDevSettleEmail)
+}
+
 // sendDevSettleEmail 开发者申请结算（保活检测满 12 次）自动邮件通知
 // 通过→模板 SES_TPL_DEV_OK；未通过→模板 SES_TPL_DEV_REJECT
 func sendDevSettleEmail(r PlanVisaResult) {
@@ -77,7 +83,11 @@ func sendDevSettleEmail(r PlanVisaResult) {
 	}
 	var email string
 	if err := db.QueryRow("SELECT email FROM userdata WHERE UID = ?", r.UID).Scan(&email); err != nil || email == "" {
-		log.Printf("ℹ️ 用户 UID=%d 未绑定邮箱，跳过开发者结果邮件", r.UID)
+		resultText := "未通过"
+		if r.OK {
+			resultText = "通过"
+		}
+		log.Printf("⚠️ 用户 UID=%d 申请%s但没有有效通知方式,跳过", r.UID, resultText)
 		return
 	}
 

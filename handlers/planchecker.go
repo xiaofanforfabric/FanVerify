@@ -35,8 +35,16 @@ type PlanVisaResult struct {
 	Total     int    `json:"total"`  // 总检测次数(12)
 }
 
-// OnPlanVisaSettled 广播回调：测满 12 次结算后触发（供通知模块注册，nil 则仅日志）
-var OnPlanVisaSettled func(PlanVisaResult)
+// 广播订阅者列表：申请结算（测满 12 次 / 一键完成）后逐个触发（通知模块在此注册，如邮件、站内信等）
+var planVisaNotifiers []func(PlanVisaResult)
+
+// RegisterPlanVisaNotifier 注册申请结算广播订阅者
+func RegisterPlanVisaNotifier(fn func(PlanVisaResult)) {
+	if fn == nil {
+		return
+	}
+	planVisaNotifiers = append(planVisaNotifiers, fn)
+}
 
 var (
 	planOnce       sync.Once
@@ -219,19 +227,21 @@ func settlePlan(r PlanVisaResult, planID, connType string) {
 	// 删除该计划任务（测满 12 次即终止）
 	db.Exec("DELETE FROM plan_list WHERE plan_id = ?", planID)
 
-	// 通过已绑定邮箱通知开发者申请结果（保活检测自动邮件）
-	sendDevSettleEmail(r)
+	// 触发广播：逐个通知所有已注册的订阅者（邮件通知在启动时注册）
+	firePlanVisaSettled(r)
+}
 
-	// 触发广播（供后续通知模块使用）
-	if OnPlanVisaSettled != nil {
-		go func() {
+// firePlanVisaSettled 触发申请结算广播（异步逐个执行订阅者，单个异常不影响其他）
+func firePlanVisaSettled(r PlanVisaResult) {
+	for _, fn := range planVisaNotifiers {
+		go func(f func(PlanVisaResult)) {
 			defer func() {
 				if e := recover(); e != nil {
-					log.Printf("⚠️ 保活检测广播回调异常: %v", e)
+					log.Printf("⚠️ 申请结算广播回调异常: %v", e)
 				}
 			}()
-			OnPlanVisaSettled(r)
-		}()
+			f(r)
+		}(fn)
 	}
 }
 

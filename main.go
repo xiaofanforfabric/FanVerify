@@ -36,6 +36,9 @@ func main() {
 	// 初始化 ip2region 离线 IP 库（省份校验）
 	handlers.InitIP2Region()
 
+	// 注册申请结算广播订阅：邮件通知模块（用户未绑定邮箱则记日志跳过）
+	handlers.RegisterEmailBroadcast()
+
 	// 读取 debug 模式
 	debugMode := getEnv("DEBUG", "false") == "true"
 
@@ -65,6 +68,8 @@ func main() {
 		mux.HandleFunc("/api/debug/adddev", handlers.CorsMiddleware(handlers.HandleDebugAddDev()))
 		mux.HandleFunc("/api/debug/adddev/web/", handlers.HandleDebugWebUI())
 		mux.HandleFunc("/api/debug/send_email", handlers.CorsMiddleware(handlers.HandleDebugSendEmail()))
+		mux.HandleFunc("/api/debug/check_plan", handlers.CorsMiddleware(handlers.HandleDebugCheckPlan()))
+		mux.HandleFunc("/api/debug/finish_plan", handlers.CorsMiddleware(handlers.HandleDebugFinishPlan()))
 	} else {
 		// 非 DEBUG 模式，拦截所有 debug 路由
 		mux.HandleFunc("/api/debug/adddev", handlers.Handle404Debug())
