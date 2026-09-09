@@ -207,11 +207,8 @@ func AccessTokenMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// 检查 IP 限制
-		clientIP := r.RemoteAddr
-		if idx := strings.LastIndex(clientIP, ":"); idx != -1 {
-			clientIP = clientIP[:idx] // 移除端口
-		}
+		// 检查 IP 限制（读取反代传递的 X-Real-IP / X-Forwarded-For，见 clientIP()）
+		remoteIP := clientIP(r)
 
 		if devBIP == "NULL" {
 			// NULL 禁止所有 HTTP 访问
@@ -221,11 +218,11 @@ func AccessTokenMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		if devBIP != "ALL" && devBIP != clientIP {
+		if devBIP != "ALL" && devBIP != remoteIP {
 			// IP 不匹配
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error":"Unauthorized"}`))
-			log.Printf("❌ 鉴权失败: IP 不匹配, 期望 %s 但得到 %s", devBIP, clientIP)
+			log.Printf("❌ 鉴权失败: IP 不匹配, 期望 %s 但得到 %s", devBIP, remoteIP)
 			return
 		}
 
@@ -239,7 +236,7 @@ func AccessTokenMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		// 鉴权成功，记录验证次数
 		db.Exec("UPDATE devdata SET NOV = NOV + 1 WHERE devaccesstoken = ?", accessToken)
-		log.Printf("✅ 鉴权成功: %s, IP: %s", accessToken, clientIP)
+		log.Printf("✅ 鉴权成功: %s, IP: %s", accessToken, remoteIP)
 
 		// 继续处理
 		next(w, r)

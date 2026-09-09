@@ -348,14 +348,21 @@ func handleLoginGET(w http.ResponseWriter, r *http.Request) {
 	log.Printf("✅ OTP 式登录成功: UID=%d, IP=%s", user.UID, resp.IP)
 }
 
-// clientIP 获取客户端真实 IP（优先代理头，回退 RemoteAddr）
+// clientIP 获取客户端真实 IP
+// 优先取 X-Real-IP：nginx 反代已用 proxy_set_header X-Real-IP $remote_addr 覆写，客户端无法伪造；
+// 回退 X-Forwarded-For 取最后一项（代理链追加的真实来源）；
+// 无代理头时回退 RemoteAddr（直连场景）。
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
-	}
 	if xr := r.Header.Get("X-Real-IP"); xr != "" {
 		return strings.TrimSpace(xr)
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			if ip := strings.TrimSpace(parts[i]); ip != "" {
+				return ip
+			}
+		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
