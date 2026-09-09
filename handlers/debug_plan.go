@@ -70,9 +70,11 @@ func HandleDebugCheckPlan() http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "请求解析失败"})
 			return
 		}
-		if err := json.Unmarshal(body, &req); err != nil {
-			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "JSON 格式错误"})
-			return
+		if len(body) > 0 {
+			if err := json.Unmarshal(body, &req); err != nil {
+				writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "JSON 格式错误"})
+				return
+			}
 		}
 
 		row, err := loadDebugVisa(req)
@@ -90,12 +92,12 @@ func HandleDebugCheckPlan() http.HandlerFunc {
 		writeJSON(w, http.StatusOK, ApiResponse{
 			Success: true,
 			Data: map[string]interface{}{
-				"visa_id":        row.ID,
-				"type":           row.Type,
-				"service_addr":   row.ServiceAddr,
-				"result":         result,
-				"online":         online,
-				"note":           "本次仅为测试，结果未写入数据库",
+				"visa_id":      row.ID,
+				"type":         row.Type,
+				"service_addr": row.ServiceAddr,
+				"result":       result,
+				"online":       online,
+				"note":         "本次仅为测试，结果未写入数据库",
 			},
 		})
 	}

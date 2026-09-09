@@ -142,22 +142,27 @@ const flowSteps = [
             <span class="btn-icon-text">📊</span>
             运营成本
           </a>
-          <a class="btn btn-secondary" href="https://github.com" target="_blank">
+          <a class="btn btn-secondary" href="https://github.com/xiaofanforfabric/FanVerify" target="_blank" rel="noopener">
             <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
             </svg>
             GitHub
           </a>
         </div>
+
+        <p class="open-source-note">
+          🔒 由于项目刚刚发布，正在委托安全漏洞扫描阶段，
+          本项目的开源链接将于 <strong>2026 年 10 月 10 日</strong> 生效
+        </p>
       </div>
     </section>
 
     <!-- Status Banner -->
     <div class="status-banner">
       <div class="status-content">
-        <span class="status-icon">🚧</span>
-        <span class="status-text">项目开发中</span>
-        <span class="status-badge">Alpha v0.1</span>
+        <span class="status-icon">🎉</span>
+        <span class="status-text">FanVerify V1.0 正式发布</span>
+        <span class="status-badge">Release</span>
       </div>
     </div>
 
@@ -303,7 +308,7 @@ const flowSteps = [
       <p class="cta-desc">查看文档了解如何部署和使用 FanVerify</p>
       <div class="cta-actions">
         <a class="btn btn-primary btn-lg" href="/" onclick="alert('文档开发中...');return false">查看文档</a>
-        <a class="btn btn-outline btn-lg" href="/" onclick="alert('敬请期待...');return false">下载源码</a>
+        <a class="btn btn-outline btn-lg" href="https://github.com/xiaofanforfabric/FanVerify" target="_blank" rel="noopener" onclick="alert('源码正在安全漏洞扫描中，将于 2026-10-10 开源，敬请期待');return false">下载源码</a>
       </div>
     </section>
 
@@ -345,7 +350,7 @@ const flowSteps = [
           
           <div class="footer-column">
             <h4>开发</h4>
-            <a href="#">GitHub</a>
+            <a href="https://github.com/xiaofanforfabric/FanVerify" target="_blank" rel="noopener">GitHub</a>
             <a href="#">API 参考</a>
             <a href="#">更新日志</a>
           </div>
@@ -652,6 +657,23 @@ const flowSteps = [
 .icon {
   width: 20px;
   height: 20px;
+}
+
+/* 开源说明（GitHub 链接下方） */
+.open-source-note {
+  margin: 1.4rem auto 0;
+  max-width: 600px;
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 999px;
+  padding: 0.5rem 1.2rem;
+}
+
+.open-source-note strong {
+  color: #78350f;
 }
 
 /* Status Banner */
