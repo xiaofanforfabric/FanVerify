@@ -307,7 +307,7 @@ const flowSteps = [
       <h2 class="cta-title">准备开始？</h2>
       <p class="cta-desc">查看文档了解如何部署和使用 FanVerify</p>
       <div class="cta-actions">
-        <a class="btn btn-primary btn-lg" href="/" onclick="alert('文档开发中...');return false">查看文档</a>
+        <a class="btn btn-primary btn-lg" href="https://doc.fanverify.cn/" target="_blank" rel="noopener">查看文档</a>
         <a class="btn btn-outline btn-lg" href="https://github.com/xiaofanforfabric/FanVerify" target="_blank" rel="noopener" onclick="alert('源码正在安全漏洞扫描中，将于 2026-10-10 开源，敬请期待');return false">下载源码</a>
       </div>
     </section>
@@ -345,7 +345,7 @@ const flowSteps = [
             <h4>产品</h4>
             <a href="#">小程序</a>
             <a href="#">OpenAPI</a>
-            <a href="#">文档</a>
+            <a href="https://doc.fanverify.cn/" target="_blank" rel="noopener">文档</a>
           </div>
           
           <div class="footer-column">
