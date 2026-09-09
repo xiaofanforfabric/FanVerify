@@ -367,6 +367,15 @@ func HandleOTPAPI(appID, secret string) http.HandlerFunc {
 			return
 		}
 
+		// 校验用户验证等级是否满足该业务密钥要求（level==0 视为 root，放行）
+		if nel, ok := devNELByToken(devAccessToken); ok && !userLevelSatisfies(user.Level, nel) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"code":403,"error":"您的验证等级不足，无法完成该业务的验证，请在设置中升级后再试"}`))
+			log.Printf("❌ OTP API: 验证等级不足 UID=%d level=%d need=%d", user.UID, user.Level, nel)
+			return
+		}
+
 		bandTime := fmt.Sprintf("%d", time.Now().UnixMilli())
 		_, err = db.Exec("UPDATE otpdata SET UID = ?, band_time = ? WHERE otp = ?", user.UID, bandTime, req.OTP)
 		if err != nil {

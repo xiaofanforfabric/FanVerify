@@ -116,9 +116,9 @@ func HandleSeeOTP() http.HandlerFunc {
 		}
 		lastQuery[otp] = now
 
-		var lostdate string
+		var lostdate, devAccessToken string
 		var uid int
-		err := db.QueryRow("SELECT lostdate, UID FROM otpdata WHERE otp = ?", otp).Scan(&lostdate, &uid)
+		err := db.QueryRow("SELECT lostdate, UID, devaccesstoken FROM otpdata WHERE otp = ?", otp).Scan(&lostdate, &uid, &devAccessToken)
 		if err == sql.ErrNoRows {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"status":"404"}`))
@@ -152,6 +152,22 @@ func HandleSeeOTP() http.HandlerFunc {
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"status":"error"}`))
+			return
+		}
+
+		// 校验用户验证等级是否满足该业务密钥要求（level==0 root 放行）；不足时返回 insufficient
+		if nel, ok := devNELByToken(devAccessToken); ok && !userLevelSatisfies(level, nel) {
+			response := map[string]interface{}{
+				"status": "insufficient",
+				"data": []map[string]interface{}{{
+					"uid":   uid,
+					"level": strconv.Itoa(level),
+					"need":  strconv.Itoa(nel),
+				}},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+			log.Printf("⛔ OTP 验证等级不足: uid=%d level=%d need=%d", uid, level, nel)
 			return
 		}
 
@@ -235,6 +251,15 @@ func HandleUserVerify() http.HandlerFunc {
 			}
 		}
 
+		// 校验用户验证等级是否达到该开发者密钥要求（level==0 视为 root，放行）
+		accessToken := r.URL.Query().Get("accesstoken")
+		if nel, ok := devNELByToken(accessToken); ok && !userLevelSatisfies(level, nel) {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"error":"Forbidden","message":"您的验证等级不足，无法完成该业务验证"}`))
+			log.Printf("❌ 用户验证失败: 验证等级不足 UID=%d level=%d need=%d", uid, level, nel)
+			return
+		}
+
 		response := map[string]interface{}{
 			"status": "ok",
 			"data": []map[string]interface{}{{
@@ -246,7 +271,6 @@ func HandleUserVerify() http.HandlerFunc {
 		}
 
 		// 验证成功，更新开发者的 PUID
-		accessToken := r.URL.Query().Get("accesstoken")
 		if accessToken != "" {
 			var currentPUID sql.NullString
 			err = db.QueryRow("SELECT PUID FROM devdata WHERE devaccesstoken = ?", accessToken).Scan(&currentPUID)

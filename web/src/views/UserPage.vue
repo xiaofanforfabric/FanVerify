@@ -107,6 +107,7 @@ onMounted(fetchMe)
         <div v-if="menuOpen" class="menu-dropdown">
           <div class="menu-item" @click="goMenu('/user')">👤 用户中心</div>
           <div class="menu-item" @click="goMenu('/developer')">🛠️ 开发者页面</div>
+          <div v-if="user && user.level === 0" class="menu-item admin" @click="goMenu('/admin')">🛡️ 管理员后台</div>
           <div class="menu-item danger" @click="goLogout">🚪 退出登录</div>
         </div>
       </div>
@@ -279,6 +280,15 @@ onMounted(fetchMe)
 
 .menu-item.danger:hover {
   background: #fef2f2;
+}
+
+.menu-item.admin {
+  color: #6d28d9;
+  font-weight: 600;
+}
+
+.menu-item.admin:hover {
+  background: #f5f3ff;
 }
 
 .menu-item + .menu-item {

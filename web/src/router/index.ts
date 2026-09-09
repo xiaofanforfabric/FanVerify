@@ -38,6 +38,11 @@ const router = createRouter({
       name: 'bind_email',
       component: () => import('../views/BindEmailPage.vue'),
     },
+    {
+      path: '/admin',
+      name: 'admin',
+      component: () => import('../views/AdminPage.vue'),
+    },
   ],
 })
 

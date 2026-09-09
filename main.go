@@ -104,6 +104,14 @@ func main() {
 	mux.HandleFunc("/api/legal/developer", handlers.CorsMiddleware(handlers.HandleLegalDeveloperAgreement()))
 	mux.HandleFunc("/api/legal/developer-privacy", handlers.CorsMiddleware(handlers.HandleLegalDeveloperPrivacy()))
 
+	// ===== 管理员接口（仅验证等级为 0 的 root 可调用）=====
+	mux.HandleFunc("/api/admin/getalluser", handlers.CorsMiddleware(handlers.HandleAdminGetAllUser()))
+	mux.HandleFunc("/api/admin/ban_user", handlers.CorsMiddleware(handlers.HandleAdminBanUser()))
+	mux.HandleFunc("/api/admin/getdev", handlers.CorsMiddleware(handlers.HandleAdminGetDev()))
+	mux.HandleFunc("/api/admin/editdev", handlers.CorsMiddleware(handlers.HandleAdminEditDev()))
+	mux.HandleFunc("/api/admin/visalist", handlers.CorsMiddleware(handlers.HandleAdminVisaList()))
+	mux.HandleFunc("/api/admin/editvisa", handlers.CorsMiddleware(handlers.HandleAdminEditVisa()))
+
 	// 账单查询接口（需人机验证）
 	mux.HandleFunc("/api/getmoneylist", handlers.CorsMiddleware(handlers.CaptchaMiddleware(handlers.HandleGetMoneyList())))
 

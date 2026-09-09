@@ -174,6 +174,7 @@ func createSQLiteTables() {
 		status         VARCHAR(8)   NOT NULL DEFAULT 'wait',  -- wait=审核中 / ok=已通过 / ice=删除冻结
 		end_time       VARCHAR(20)  NOT NULL DEFAULT '',      -- 审核结束时间戳(申请时间+1天)
 		admin_see      VARCHAR(8)   NOT NULL DEFAULT 'no',    -- yes/no 是否需要人工审核
+		reviewed       VARCHAR(8)   NOT NULL DEFAULT 'no',    -- yes/no 管理员是否已审查（未审查在前端标红）
 		plan_id        VARCHAR(64)  DEFAULT NULL             -- 关联 plan_list.plan_id(NULL=人工审核不建计划任务)
 	)`
 	if _, err := db.Exec(visaQuery); err != nil {
@@ -199,6 +200,9 @@ func createSQLiteTables() {
 	db.Exec("ALTER TABLE userdata ADD COLUMN status VARCHAR(8) NOT NULL DEFAULT 'ok'")
 	db.Exec("ALTER TABLE userdata ADD COLUMN qq VARCHAR(64) NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE userdata ADD COLUMN email VARCHAR(64) NOT NULL DEFAULT ''")
+
+	// 兼容 dev_visa_list 表：添加 reviewed 字段
+	db.Exec("ALTER TABLE dev_visa_list ADD COLUMN reviewed VARCHAR(8) NOT NULL DEFAULT 'no'")
 
 	// 兼容 otpdata 表：添加 devaccesstoken 字段
 	db.Exec("ALTER TABLE otpdata ADD COLUMN devaccesstoken TEXT DEFAULT ''")
@@ -317,6 +321,7 @@ func createMySQLTables() {
 		status         VARCHAR(8)   NOT NULL DEFAULT 'wait',  -- wait=审核中 / ok=已通过 / ice=删除冻结
 		end_time       VARCHAR(20)  NOT NULL DEFAULT '',      -- 审核结束时间戳(申请时间+1天)
 		admin_see      VARCHAR(8)   NOT NULL DEFAULT 'no',    -- yes/no 是否需要人工审核
+		reviewed       VARCHAR(8)   NOT NULL DEFAULT 'no',    -- yes/no 管理员是否已审查（未审查在前端标红）
 		plan_id        VARCHAR(64)  DEFAULT NULL,            -- 关联 plan_list.plan_id(NULL=人工审核不建计划任务)
 		INDEX idx_dev_visa_uid (uid),
 		INDEX idx_dev_visa_biz (serverip, service_adderss)
@@ -345,6 +350,9 @@ func createMySQLTables() {
 	db.Exec("ALTER TABLE userdata ADD COLUMN status VARCHAR(8) NOT NULL DEFAULT 'ok'")
 	db.Exec("ALTER TABLE userdata ADD COLUMN qq VARCHAR(64) NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE userdata ADD COLUMN email VARCHAR(64) NOT NULL DEFAULT ''")
+
+	// 兼容 dev_visa_list 表：添加 reviewed 字段
+	db.Exec("ALTER TABLE dev_visa_list ADD COLUMN reviewed VARCHAR(8) NOT NULL DEFAULT 'no'")
 
 	// 兼容 otpdata 表：添加 devaccesstoken 字段
 	db.Exec("ALTER TABLE otpdata ADD COLUMN devaccesstoken VARCHAR(128) DEFAULT ''")
