@@ -119,8 +119,11 @@ func HandleCodeOpenID(appID, secret string) http.HandlerFunc {
 			return
 		}
 
-		// 已注册用户 → 直接返回
+		// 已注册用户 → 先检查是否被封禁，再登录/返回
 		if user != nil {
+			if wxRejectBanned(w, user, "登录/查询") {
+				return
+			}
 			writeUserOK(w, user)
 			return
 		}
@@ -192,6 +195,10 @@ func HandleCodeGenerate(appID, secret, codeSecret string) http.HandlerFunc {
 			w.Write([]byte(`{"code":401}`))
 			return
 		}
+		// 封禁检查：封禁用户不可获取验证码
+		if wxRejectBanned(w, user, "获取验证码") {
+			return
+		}
 
 		now := time.Now()
 		// 使用 TOTP 算法生成验证码
@@ -254,6 +261,10 @@ func HandleUpdateCodeLevel(appID, secret, codeSecret string) http.HandlerFunc {
 		if err != nil || user == nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"code":401}`))
+			return
+		}
+		// 封禁检查
+		if wxRejectBanned(w, user, "更新验证码等级") {
 			return
 		}
 
@@ -334,6 +345,10 @@ func HandleOTPAPI(appID, secret string) http.HandlerFunc {
 			log.Printf("❌ OTP API: 用户不存在")
 			return
 		}
+		// 封禁检查
+		if wxRejectBanned(w, user, "扫码绑定") {
+			return
+		}
 
 		var lostdate string
 		var existingUID int
@@ -412,6 +427,18 @@ func HandleOTPAPI(appID, secret string) http.HandlerFunc {
 		w.Write([]byte(`{"code":200}`))
 		log.Printf("✅ OTP API: 绑定成功, UID=%d, OTP=%s", user.UID, req.OTP)
 	}
+}
+
+// wxRejectBanned 封禁用户统一拦截：status=bad 时写 401 并返回 true（调用方直接 return）
+func wxRejectBanned(w http.ResponseWriter, user *User, scene string) bool {
+	if user != nil && user.Status == "bad" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"code":401,"error":"账号已被封禁"}`))
+		log.Printf("🚫 封禁用户被拒(%s): UID=%d", scene, user.UID)
+		return true
+	}
+	return false
 }
 
 // 辅助函数

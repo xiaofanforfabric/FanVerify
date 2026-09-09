@@ -67,6 +67,12 @@ func authByToken(w http.ResponseWriter, r *http.Request, token string) (int, str
 			return 0, "", false
 		}
 	}
+	// 封禁检查：封禁用户不可操作（实时查库）
+	var st string
+	if err := db.QueryRow("SELECT status FROM userdata WHERE UID = ?", claims.UserData[0].UID).Scan(&st); err == nil && st == "bad" {
+		writeJSON(w, http.StatusUnauthorized, ApiResponse{Success: false, Error: "账号已被封禁"})
+		return 0, "", false
+	}
 	return claims.UserData[0].UID, claims.UserData[0].OpenID, true
 }
 

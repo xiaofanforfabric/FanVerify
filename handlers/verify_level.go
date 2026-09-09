@@ -63,6 +63,11 @@ func verifyLevelAuth(w http.ResponseWriter, r *http.Request, appID, secret, code
 		writeJSON(w, http.StatusNotFound, ApiResponse{Success: false, Error: "用户未注册"})
 		return "", nil, false
 	}
+	// 封禁检查：封禁用户不可升级/绑定
+	if user.Status == "bad" {
+		writeJSON(w, http.StatusUnauthorized, ApiResponse{Success: false, Error: "账号已被封禁"})
+		return "", nil, false
+	}
 	return wxResp.OpenID, user, true
 }
 

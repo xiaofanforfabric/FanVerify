@@ -130,6 +130,13 @@ func handleLoginPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 封禁检查：封禁用户不可登录
+	if user.Status == "bad" {
+		log.Printf("🚫 封禁用户尝试登录被拒: UID=%d", uid)
+		writeJSON(w, http.StatusUnauthorized, ApiResponse{Success: false, Error: "账号已被封禁，无法登录"})
+		return
+	}
+
 	// 无论成功与否，先作废本次动态验证码：防止 150 秒窗口内暴力枚举（如 4 位码仅 1 万种）
 	db.Exec("UPDATE userdata SET tmp_code = '', code_lost_time = '' WHERE UID = ?", uid)
 
@@ -281,6 +288,13 @@ func handleLoginGET(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("❌ 查询用户失败: %v", err)
 		writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "内部错误"})
+		return
+	}
+
+	// 封禁检查：封禁用户不可通过 OTP 式登录
+	if user.Status == "bad" {
+		log.Printf("🚫 封禁用户 OTP 登录被拒: UID=%d", user.UID)
+		writeJSON(w, http.StatusUnauthorized, ApiResponse{Success: false, Error: "账号已被封禁，无法登录"})
 		return
 	}
 
