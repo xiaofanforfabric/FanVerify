@@ -108,10 +108,12 @@ async function initCaptcha() {
   await loadCapScript()
 
   let resolved = false
-  const onToken = (token: string) => {
+  const onToken = (token: any) => {
     if (resolved) return
+    const t = normalizeCapToken(token)
+    if (!t) return
     resolved = true
-    capToken.value = token
+    capToken.value = t
     captchaDone.value = true
     errorMsg.value = ''
   }
@@ -181,7 +183,7 @@ async function generateQr() {
     qrMsg.value = '人机验证未完成，请点击上方验证后重试'
     return
   }
-  capToken.value = token
+  capToken.value = normalizeCapToken(token)
   captchaDone.value = true
 
   generating.value = true
@@ -206,17 +208,31 @@ async function generateQr() {
   }
 }
 
+// 规范化 cap token：cap 的 solve()/redeem 可能返回字符串，也可能是对象（如 {token:"..."}）
+function normalizeCapToken(v: any): string {
+  if (!v) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'object') {
+    if (typeof v.token === 'string') return v.token
+    if (v.data && typeof v.data.token === 'string') return v.data.token
+    if (typeof v.solution === 'string') return v.solution
+  }
+  return ''
+}
+
 // 后台静默走一次人机验证：调用 cap-widget 的 solve()，无需用户操作
 async function silentSolveToken(): Promise<string> {
   try {
     const el: any = document.querySelector('cap-widget')
     if (el && typeof el.solve === 'function') {
       if (typeof el.reset === 'function') el.reset()
-      const token = await el.solve()
+      const raw = await el.solve()
+      const token = normalizeCapToken(raw)
       if (token) {
         console.log('✅ 静默人机验证通过')
         return token
       }
+      console.warn('静默人机验证返回无法识别的 token:', raw)
     }
   } catch (e) {
     console.error('静默人机验证失败:', e)
