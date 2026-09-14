@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 const API_BASE = 'https://api.fanverify.cn'
@@ -147,6 +147,85 @@ onMounted(async () => {
 })
 
 // 检测登录状态：调用 /api/me，200=已登录直接跳转，否则要求登录（401 时后端已清理过期 Cookie）
+// ===== 扫码登录 =====
+const mode = ref<'code' | 'qr'>('code')
+const qrOtp = ref('')
+const qrImg = ref('')
+const qrStatus = ref<'idle' | 'waiting' | 'ok' | 'error'>('idle')
+const qrMsg = ref('')
+const generating = ref(false)
+let pollTimer: any = null
+
+function switchMode(m: 'code' | 'qr') {
+  if (mode.value === m) return
+  mode.value = m
+  errorMsg.value = ''
+  if (m !== 'qr') {
+    stopPoll()
+    qrStatus.value = 'idle'
+    qrMsg.value = ''
+  }
+}
+
+// 生成登录二维码：cap_token 一次性，仅在生成时消费一次；后续轮询只带 otp
+async function generateQr() {
+  qrMsg.value = ''
+  if (!capToken.value) {
+    qrMsg.value = '请先完成上方人机验证'
+    return
+  }
+  generating.value = true
+  try {
+    const res = await fetch(`${API_BASE}/api/login?cap_token=${encodeURIComponent(capToken.value)}`)
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.otp) {
+      qrOtp.value = data.otp
+      qrImg.value = `${API_BASE}/api/login/qrcode?otp=${encodeURIComponent(data.otp)}`
+      qrStatus.value = 'waiting'
+      startPoll()
+    } else {
+      qrStatus.value = 'error'
+      qrMsg.value = data.error || '生成失败，请刷新页面重新完成人机验证后重试'
+    }
+  } catch (e) {
+    console.error('生成二维码失败:', e)
+    qrStatus.value = 'error'
+    qrMsg.value = '网络错误，请稍后重试'
+  } finally {
+    generating.value = false
+  }
+}
+
+// 轮询登录状态（只带 otp，无需 cap_token）
+function startPoll() {
+  stopPoll()
+  pollTimer = setInterval(async () => {
+    if (!qrOtp.value) return
+    try {
+      const res = await fetch(`${API_BASE}/api/login?otp=${encodeURIComponent(qrOtp.value)}`)
+      const data = await res.json().catch(() => ({}))
+      if (data.status === 'ok') {
+        stopPoll()
+        qrStatus.value = 'ok'
+        setTimeout(() => router.push('/user'), 600)
+      } else if (data.status === 'lost' || data.status === '404') {
+        stopPoll()
+        qrStatus.value = 'error'
+        qrMsg.value = '二维码已过期，请刷新页面重新生成'
+      }
+    } catch (e) {
+      // 单次网络抖动忽略，下一轮重试
+    }
+  }, 3000)
+}
+function stopPoll() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+onUnmounted(() => stopPoll())
+
 async function checkAuth(): Promise<boolean> {
   try {
     const res = await fetch(API_BASE + '/api/me', { credentials: 'include' })
@@ -187,25 +266,48 @@ async function checkAuth(): Promise<boolean> {
           <p class="card-desc">使用微信小程序中的 UID 与动态验证码完成登录</p>
         </div>
 
-        <div class="form-field">
-          <label for="uid">UID</label>
-          <input id="uid" v-model="uid" type="text" inputmode="numeric" placeholder="例如 100000" autocomplete="username" />
+        <div class="mode-tabs">
+          <button class="mode-tab" :class="{ active: mode === 'code' }" @click="switchMode('code')">动态码登录</button>
+          <button class="mode-tab" :class="{ active: mode === 'qr' }" @click="switchMode('qr')">扫码登录</button>
         </div>
 
-        <div class="form-field">
-          <label for="code">动态验证码</label>
-          <input id="code" v-model="verifyCode" type="text" inputmode="numeric" placeholder="小程序首页显示的验证码" autocomplete="one-time-code" />
-        </div>
+        <!-- 动态码登录 -->
+        <template v-if="mode === 'code'">
+          <div class="form-field">
+            <label for="uid">UID</label>
+            <input id="uid" v-model="uid" type="text" inputmode="numeric" placeholder="例如 100000" autocomplete="username" />
+          </div>
 
+          <div class="form-field">
+            <label for="code">动态验证码</label>
+            <input id="code" v-model="verifyCode" type="text" inputmode="numeric" placeholder="小程序首页显示的验证码" autocomplete="one-time-code" />
+          </div>
+        </template>
+
+        <!-- 公共人机验证 -->
         <div class="captcha-box">
           <cap-widget data-cap-api-endpoint="https://cap.fanverify.cn/22a34a230e/"></cap-widget>
         </div>
 
         <p v-if="captchaDone" class="captcha-done">✓ 人机验证已通过</p>
 
-        <button class="btn-login" :disabled="step === 'logging'" @click="submitLogin">
+        <!-- 动态码登录按钮 -->
+        <button v-if="mode === 'code'" class="btn-login" :disabled="step === 'logging'" @click="submitLogin">
           {{ step === 'logging' ? '登录中…' : '登 录' }}
         </button>
+
+        <!-- 扫码登录 -->
+        <div v-if="mode === 'qr'" class="qr-panel">
+          <p class="qr-hint">用微信扫描二维码（或截图后到小程序「扫码 / 相册」识别）即可登录</p>
+          <button v-if="qrStatus === 'idle' || qrStatus === 'error'" class="btn-login" :disabled="generating" @click="generateQr">
+            {{ generating ? '生成中…' : '生成登录二维码' }}
+          </button>
+          <div v-if="qrStatus === 'waiting' || qrStatus === 'ok'" class="qr-box">
+            <img :src="qrImg" class="qr-img" alt="登录二维码" />
+            <p class="qr-status">{{ qrStatus === 'ok' ? '✅ 登录成功，正在跳转…' : '⏳ 等待扫码确认…' }}</p>
+          </div>
+          <p v-if="qrMsg" class="form-error">{{ qrMsg }}</p>
+        </div>
 
         <!-- 手机端：一键拉起微信小程序 -->
         <div v-if="isMobile" class="mini-entry">
@@ -444,5 +546,60 @@ async function checkAuth(): Promise<boolean> {
     padding: 28px 20px;
     border-radius: 14px;
   }
+}
+
+/* 扫码登录 */
+.mode-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.mode-tab {
+  flex: 1;
+  padding: 9px 0;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.mode-tab.active {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  border-color: transparent;
+}
+
+.qr-panel {
+  margin-top: 4px;
+}
+
+.qr-hint {
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+  margin: 0 0 14px;
+}
+
+.qr-box {
+  text-align: center;
+}
+
+.qr-img {
+  width: 200px;
+  height: 200px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.qr-status {
+  color: #4f46e5;
+  font-size: 13px;
+  margin: 12px 0 0;
 }
 </style>

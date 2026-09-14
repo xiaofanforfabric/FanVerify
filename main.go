@@ -98,6 +98,9 @@ func main() {
 	// H5 拉起小程序：生成 URL Scheme（手机浏览器打开官网时跳转微信小程序）
 	mux.HandleFunc("/api/wx/scheme", handlers.CorsMiddleware(handlers.HandleWXScheme()))
 
+	// 网页扫码登录：OTP 二维码图片（内容为小程序可识别的 OTP 链接）
+	mux.HandleFunc("/api/login/qrcode", handlers.HandleLoginQRCode())
+
 	// 修改开发者密钥要求验证等级（本人持有的可用密钥）
 	mux.HandleFunc("/api/dev/editdevkey", handlers.CorsMiddleware(handlers.HandleEditDevKey()))
 

@@ -208,36 +208,37 @@ func handleLoginPOST(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLoginGET 处理 GET 方式（OTP 式）登录
+// 生成阶段：?cap_token=xxx → 人机验证(cap_token 一次性消费) → 下发 OTP
+// 轮询阶段：?otp=xxx        → 仅凭 otp 查询状态（不再要求 cap_token，避免一次性的 cap 无法重复轮询）
 func handleLoginGET(w http.ResponseWriter, r *http.Request) {
 	capToken := r.URL.Query().Get("cap_token")
 	otp := r.URL.Query().Get("otp")
 
-	if capToken == "" {
-		writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "缺少 cap_token 参数"})
-		return
-	}
-
-	// 1. 人机验证（先核对是不是机器人）
-	secret := os.Getenv("CAP_SECRET")
-	if secret == "" {
-		log.Println("❌ 环境变量 CAP_SECRET 未设置")
-		writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "服务器配置错误"})
-		return
-	}
-	ok, err := verifyCaptcha(secret, capToken)
-	if err != nil {
-		log.Printf("❌ 人机验证请求失败: %v", err)
-		writeJSON(w, http.StatusBadGateway, ApiResponse{Success: false, Error: "人机验证服务异常"})
-		return
-	}
-	if !ok {
-		log.Printf("❌ 人机验证未通过 (OTP 式登录)")
-		writeJSON(w, http.StatusForbidden, ApiResponse{Success: false, Error: "人机验证未通过，请重新验证"})
-		return
-	}
-
-	// 2. 未带 otp：人机验证通过后下发 OTP
+	// ===== 生成阶段：未带 otp，需人机验证 =====
 	if otp == "" {
+		if capToken == "" {
+			writeJSON(w, http.StatusBadRequest, ApiResponse{Success: false, Error: "缺少 cap_token 参数"})
+			return
+		}
+		// 人机验证（cap_token 仅在此处校验一次）
+		secret := os.Getenv("CAP_SECRET")
+		if secret == "" {
+			log.Println("❌ 环境变量 CAP_SECRET 未设置")
+			writeJSON(w, http.StatusInternalServerError, ApiResponse{Success: false, Error: "服务器配置错误"})
+			return
+		}
+		ok, err := verifyCaptcha(secret, capToken)
+		if err != nil {
+			log.Printf("❌ 人机验证请求失败: %v", err)
+			writeJSON(w, http.StatusBadGateway, ApiResponse{Success: false, Error: "人机验证服务异常"})
+			return
+		}
+		if !ok {
+			log.Printf("❌ 人机验证未通过 (OTP 式登录)")
+			writeJSON(w, http.StatusForbidden, ApiResponse{Success: false, Error: "人机验证未通过，请重新验证"})
+			return
+		}
+
 		newOTP := generateOTP(16)
 		lostdate := fmt.Sprintf("%d", time.Now().Add(150*time.Second).UnixMilli())
 		_, err = db.Exec(
@@ -254,10 +255,11 @@ func handleLoginGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. 带 otp：等效 seeotp 查询登录状态
+	// ===== 轮询阶段：仅凭 otp 查询登录状态（无需 cap_token）=====
+
 	var lostdate string
 	var uid int
-	err = db.QueryRow("SELECT lostdate, UID FROM otpdata WHERE otp = ?", otp).Scan(&lostdate, &uid)
+	err := db.QueryRow("SELECT lostdate, UID FROM otpdata WHERE otp = ?", otp).Scan(&lostdate, &uid)
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "404"})
 		return
