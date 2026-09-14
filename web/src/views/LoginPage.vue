@@ -14,6 +14,38 @@ const capToken = ref('')
 const captchaDone = ref(false)
 const checking = ref(true) // 是否在检测登录状态
 
+// ===== H5 拉起微信小程序（手机版） =====
+const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+const isWeChat = /MicroMessenger/i.test(navigator.userAgent)
+const launching = ref(false)
+const launchMsg = ref('')
+
+// 手机端一键拉起微信小程序
+async function openMiniProgram() {
+  launchMsg.value = ''
+  // 微信内置浏览器不允许直接 scheme 跳转，给出引导
+  if (isWeChat) {
+    launchMsg.value = '请点击右上角「···」→「在微信中打开」，或直接在微信搜索「FanVerify」小程序'
+    return
+  }
+  launching.value = true
+  try {
+    const res = await fetch(API_BASE + '/api/wx/scheme', { credentials: 'include' })
+    const data = await res.json().catch(() => ({}))
+    const scheme = data && data.data && data.data.scheme
+    if (res.ok && scheme) {
+      window.location.href = scheme
+    } else {
+      launchMsg.value = (data && data.error) || '暂时无法拉起小程序，请在微信中搜索「FanVerify」'
+    }
+  } catch (e) {
+    console.error('拉起小程序失败:', e)
+    launchMsg.value = '网络错误，请在微信中搜索「FanVerify」'
+  } finally {
+    launching.value = false
+  }
+}
+
 // 加载 Cap.js 人机验证组件
 function loadCapScript(): Promise<void> {
   return new Promise((resolve) => {
@@ -174,6 +206,15 @@ async function checkAuth(): Promise<boolean> {
         <button class="btn-login" :disabled="step === 'logging'" @click="submitLogin">
           {{ step === 'logging' ? '登录中…' : '登 录' }}
         </button>
+
+        <!-- 手机端：一键拉起微信小程序 -->
+        <div v-if="isMobile" class="mini-entry">
+          <div class="mini-divider"><span>手机用户</span></div>
+          <button class="btn-weapp" :disabled="launching" @click="openMiniProgram">
+            📱 {{ launching ? '正在打开…' : '打开微信小程序' }}
+          </button>
+          <p v-if="launchMsg" class="mini-tip">{{ launchMsg }}</p>
+        </div>
 
         <p v-if="errorMsg" class="form-error">{{ errorMsg }}</p>
         <p v-if="step === 'logging'" class="form-tip">正在验证登录…</p>
@@ -343,5 +384,65 @@ async function checkAuth(): Promise<boolean> {
   font-size: 13px;
   text-align: center;
   margin: 12px 0 0;
+}
+
+/* 手机端：打开微信小程序 */
+.mini-entry {
+  margin-top: 20px;
+}
+
+.mini-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #9ca3af;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.mini-divider::before,
+.mini-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e5e7eb;
+}
+
+.btn-weapp {
+  width: 100%;
+  padding: 12px 0;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: #07c160;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-weapp:active {
+  opacity: 0.85;
+}
+
+.btn-weapp:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mini-tip {
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+  margin: 10px 0 0;
+}
+
+/* 手机端适配 */
+@media (max-width: 480px) {
+  .login-card {
+    padding: 28px 20px;
+    border-radius: 14px;
+  }
 }
 </style>

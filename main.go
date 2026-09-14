@@ -95,6 +95,9 @@ func main() {
 	// 绑定/更换联系邮箱（POST 发码 + GET 校验绑定，腾讯云 SES 邮件验证码）
 	mux.HandleFunc("/api/user/update_address", handlers.CorsMiddleware(handlers.HandleUpdateAddress()))
 
+	// H5 拉起小程序：生成 URL Scheme（手机浏览器打开官网时跳转微信小程序）
+	mux.HandleFunc("/api/wx/scheme", handlers.CorsMiddleware(handlers.HandleWXScheme()))
+
 	// 修改开发者密钥要求验证等级（本人持有的可用密钥）
 	mux.HandleFunc("/api/dev/editdevkey", handlers.CorsMiddleware(handlers.HandleEditDevKey()))
 
