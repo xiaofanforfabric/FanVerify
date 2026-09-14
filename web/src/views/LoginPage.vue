@@ -188,7 +188,9 @@ async function generateQr() {
 
   generating.value = true
   try {
-    const res = await fetch(`${API_BASE}/api/login?cap_token=${encodeURIComponent(capToken.value)}`)
+    const res = await fetch(`${API_BASE}/api/login?cap_token=${encodeURIComponent(capToken.value)}`, {
+      credentials: 'include' // 跨域携带并保存 Cookie
+    })
     const data = await res.json().catch(() => ({}))
     if (res.ok && data.otp) {
       qrOtp.value = data.otp
@@ -246,10 +248,14 @@ function startPoll() {
   pollTimer = setInterval(async () => {
     if (!qrOtp.value) return
     try {
-      const res = await fetch(`${API_BASE}/api/login?otp=${encodeURIComponent(qrOtp.value)}`)
+      const res = await fetch(`${API_BASE}/api/login?otp=${encodeURIComponent(qrOtp.value)}`, {
+        credentials: 'include' // 关键：接收后端下发的 HttpOnly Cookie
+      })
       const data = await res.json().catch(() => ({}))
+      console.log('[扫码登录] 轮询响应:', data)
       // 成功：后端返回 { userdata, ip, lost_time } 而不是 { status: "ok" }
       if (data.userdata && Array.isArray(data.userdata)) {
+        console.log('✅ 登录成功，准备跳转')
         stopPoll()
         qrStatus.value = 'ok'
         setTimeout(() => router.push('/user'), 600)
