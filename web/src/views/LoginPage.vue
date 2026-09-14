@@ -248,7 +248,8 @@ function startPoll() {
     try {
       const res = await fetch(`${API_BASE}/api/login?otp=${encodeURIComponent(qrOtp.value)}`)
       const data = await res.json().catch(() => ({}))
-      if (data.status === 'ok') {
+      // 成功：后端返回 { userdata, ip, lost_time } 而不是 { status: "ok" }
+      if (data.userdata && Array.isArray(data.userdata)) {
         stopPoll()
         qrStatus.value = 'ok'
         setTimeout(() => router.push('/user'), 600)
