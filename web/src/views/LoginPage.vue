@@ -154,7 +154,6 @@ const qrImg = ref('')
 const qrStatus = ref<'idle' | 'waiting' | 'ok' | 'error'>('idle')
 const qrMsg = ref('')
 const generating = ref(false)
-const capUsed = ref(false) // cap_token 是否已被消费（cap 为一次性）
 let pollTimer: any = null
 
 function switchMode(m: 'code' | 'qr') {
@@ -168,29 +167,28 @@ function switchMode(m: 'code' | 'qr') {
   }
 }
 
-// 生成登录二维码：cap_token 一次性；若已被消费则后台静默重新走一次人机验证
+// 生成登录二维码：每次生成前后台静默走一次人机验证，确保 cap_token 新鲜可用
 async function generateQr() {
   qrMsg.value = ''
   stopPoll()
 
-  // 需要（重新）获取 cap_token：未验证过，或上一次 token 已被消费
-  if (capUsed.value || !capToken.value) {
-    const t = await silentSolveToken()
-    if (!t) {
-      qrStatus.value = 'error'
-      qrMsg.value = '人机验证未完成，请点击上方验证后重试'
-      return
-    }
-    capToken.value = t
-    captchaDone.value = true
+  // 每次生成前都后台静默走一次人机验证，拿“新鲜”的 cap_token
+  // （界面显示“已通过”≠ token 仍可用：cap_token 一次性，可能已被消费/过期）
+  let token = await silentSolveToken()
+  if (!token) token = capToken.value // 静默失败时兜底用界面上已验证的 token
+  if (!token) {
+    qrStatus.value = 'error'
+    qrMsg.value = '人机验证未完成，请点击上方验证后重试'
+    return
   }
+  capToken.value = token
+  captchaDone.value = true
 
   generating.value = true
   try {
     const res = await fetch(`${API_BASE}/api/login?cap_token=${encodeURIComponent(capToken.value)}`)
     const data = await res.json().catch(() => ({}))
     if (res.ok && data.otp) {
-      capUsed.value = true // 标记已消费，下次生成前需静默重新验证
       qrOtp.value = data.otp
       qrImg.value = `${API_BASE}/api/login/qrcode?otp=${encodeURIComponent(data.otp)}`
       qrStatus.value = 'waiting'
