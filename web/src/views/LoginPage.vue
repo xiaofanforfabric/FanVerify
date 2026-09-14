@@ -20,23 +20,47 @@ const isWeChat = /MicroMessenger/i.test(navigator.userAgent)
 const launching = ref(false)
 const launchMsg = ref('')
 
-// 手机端一键拉起微信小程序
+// 手机端一键拉起微信小程序（自动申请 OTP 并传给小程序实现免扫码登录）
 async function openMiniProgram() {
   launchMsg.value = ''
   // 微信内置浏览器不允许直接 scheme 跳转，给出引导
   if (isWeChat) {
-    launchMsg.value = '请点击右上角「···」→「在微信中打开」，或直接在微信搜索「FanVerify」小程序'
+    launchMsg.value = '请点击右上角「···」→「在浏览器中打开」，或直接在微信搜索「FanVerify」小程序'
     return
   }
   launching.value = true
   try {
-    const res = await fetch(API_BASE + '/api/wx/scheme', { credentials: 'include' })
-    const data = await res.json().catch(() => ({}))
-    const scheme = data && data.data && data.data.scheme
-    if (res.ok && scheme) {
+    // 1. 后台静默人机验证
+    const capToken = await silentSolveToken()
+    if (!capToken) {
+      launchMsg.value = '人机验证失败，请稍后重试'
+      launching.value = false
+      return
+    }
+
+    // 2. 申请 OTP（用于小程序自动登录）
+    const otpRes = await fetch(`${API_BASE}/api/login?cap_token=${encodeURIComponent(capToken)}`, {
+      credentials: 'include'
+    })
+    const otpData = await otpRes.json().catch(() => ({}))
+    if (!otpRes.ok || !otpData.otp) {
+      launchMsg.value = '生成登录凭证失败，请稍后重试'
+      launching.value = false
+      return
+    }
+
+    // 3. 获取小程序 URL Scheme（将 OTP 通过 query 传给小程序）
+    const schemeRes = await fetch(
+      `${API_BASE}/api/wx/scheme?path=pages/index/index&query=otp=${encodeURIComponent(otpData.otp)}`,
+      { credentials: 'include' }
+    )
+    const schemeData = await schemeRes.json().catch(() => ({}))
+    const scheme = schemeData && schemeData.data && schemeData.data.scheme
+    if (schemeRes.ok && scheme) {
+      // 4. 拉起小程序（小程序会自动读取 otp 并登录）
       window.location.href = scheme
     } else {
-      launchMsg.value = (data && data.error) || '暂时无法拉起小程序，请在微信中搜索「FanVerify」'
+      launchMsg.value = (schemeData && schemeData.error) || '暂时无法拉起小程序，请在微信中搜索「FanVerify」'
     }
   } catch (e) {
     console.error('拉起小程序失败:', e)
