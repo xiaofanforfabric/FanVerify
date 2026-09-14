@@ -255,7 +255,10 @@ function startPoll() {
       } else if (data.status === 'lost' || data.status === '404') {
         stopPoll()
         // 过期：后台静默重新人机验证并自动刷新二维码，无需用户操作
-        generateQr()
+        // 但如果已经登录成功（qrStatus === 'ok'），不要重新生成覆盖
+        if (qrStatus.value !== 'ok') {
+          generateQr()
+        }
       }
     } catch (e) {
       // 单次网络抖动忽略，下一轮重试
