@@ -154,6 +154,7 @@ const qrImg = ref('')
 const qrStatus = ref<'idle' | 'waiting' | 'ok' | 'error'>('idle')
 const qrMsg = ref('')
 const generating = ref(false)
+const capUsed = ref(false) // cap_token 是否已被消费（cap 为一次性）
 let pollTimer: any = null
 
 function switchMode(m: 'code' | 'qr') {
@@ -167,25 +168,36 @@ function switchMode(m: 'code' | 'qr') {
   }
 }
 
-// 生成登录二维码：cap_token 一次性，仅在生成时消费一次；后续轮询只带 otp
+// 生成登录二维码：cap_token 一次性；若已被消费则后台静默重新走一次人机验证
 async function generateQr() {
   qrMsg.value = ''
-  if (!capToken.value) {
-    qrMsg.value = '请先完成上方人机验证'
-    return
+  stopPoll()
+
+  // 需要（重新）获取 cap_token：未验证过，或上一次 token 已被消费
+  if (capUsed.value || !capToken.value) {
+    const t = await silentSolveToken()
+    if (!t) {
+      qrStatus.value = 'error'
+      qrMsg.value = '人机验证未完成，请点击上方验证后重试'
+      return
+    }
+    capToken.value = t
+    captchaDone.value = true
   }
+
   generating.value = true
   try {
     const res = await fetch(`${API_BASE}/api/login?cap_token=${encodeURIComponent(capToken.value)}`)
     const data = await res.json().catch(() => ({}))
     if (res.ok && data.otp) {
+      capUsed.value = true // 标记已消费，下次生成前需静默重新验证
       qrOtp.value = data.otp
       qrImg.value = `${API_BASE}/api/login/qrcode?otp=${encodeURIComponent(data.otp)}`
       qrStatus.value = 'waiting'
       startPoll()
     } else {
       qrStatus.value = 'error'
-      qrMsg.value = data.error || '生成失败，请刷新页面重新完成人机验证后重试'
+      qrMsg.value = data.error || '生成失败，请稍后重试'
     }
   } catch (e) {
     console.error('生成二维码失败:', e)
@@ -194,6 +206,24 @@ async function generateQr() {
   } finally {
     generating.value = false
   }
+}
+
+// 后台静默走一次人机验证：调用 cap-widget 的 solve()，无需用户操作
+async function silentSolveToken(): Promise<string> {
+  try {
+    const el: any = document.querySelector('cap-widget')
+    if (el && typeof el.solve === 'function') {
+      if (typeof el.reset === 'function') el.reset()
+      const token = await el.solve()
+      if (token) {
+        console.log('✅ 静默人机验证通过')
+        return token
+      }
+    }
+  } catch (e) {
+    console.error('静默人机验证失败:', e)
+  }
+  return ''
 }
 
 // 轮询登录状态（只带 otp，无需 cap_token）
@@ -210,8 +240,8 @@ function startPoll() {
         setTimeout(() => router.push('/user'), 600)
       } else if (data.status === 'lost' || data.status === '404') {
         stopPoll()
-        qrStatus.value = 'error'
-        qrMsg.value = '二维码已过期，请刷新页面重新生成'
+        // 过期：后台静默重新人机验证并自动刷新二维码，无需用户操作
+        generateQr()
       }
     } catch (e) {
       // 单次网络抖动忽略，下一轮重试
