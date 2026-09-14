@@ -15,6 +15,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -48,6 +49,19 @@ type LoginResponse struct {
 
 // defaultJWTExpire JWT 默认有效期 7 天
 const defaultJWTExpire = 7 * 24 * time.Hour
+
+// 轮询限频：同一 OTP 每 5 秒最多查询一次（内存记录，仅用于防刷）
+var (
+	loginOtpMu        sync.Mutex
+	loginOtpLastQuery = make(map[string]int64)
+)
+
+// loginOtpForget 清理 OTP 轮询限频记录
+func loginOtpForget(otp string) {
+	loginOtpMu.Lock()
+	delete(loginOtpLastQuery, otp)
+	loginOtpMu.Unlock()
+}
 
 // HandleLogin 登录接口，支持两种方式：
 //
@@ -259,8 +273,26 @@ func handleLoginGET(w http.ResponseWriter, r *http.Request) {
 
 	var lostdate string
 	var uid int
+
+	// 5 秒轮询限频（防刷）——轮询阶段不做人机验证，仅限频
+	nowSec := time.Now().Unix()
+	loginOtpMu.Lock()
+	lastQuery, seen := loginOtpLastQuery[otp]
+	if seen && nowSec-lastQuery < 5 {
+		loginOtpMu.Unlock()
+		w.Header().Set("Retry-After", "5")
+		writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
+			"status": "rate_limit",
+			"error":  "请求过于频繁，请 5 秒后重试",
+		})
+		return
+	}
+	loginOtpLastQuery[otp] = nowSec
+	loginOtpMu.Unlock()
+
 	err := db.QueryRow("SELECT lostdate, UID FROM otpdata WHERE otp = ?", otp).Scan(&lostdate, &uid)
 	if err == sql.ErrNoRows {
+		loginOtpForget(otp)
 		writeJSON(w, http.StatusOK, map[string]string{"status": "404"})
 		return
 	}
@@ -273,6 +305,7 @@ func handleLoginGET(w http.ResponseWriter, r *http.Request) {
 	lostTimestamp, _ := strconv.ParseInt(lostdate, 10, 64)
 	if time.Now().UnixMilli() > lostTimestamp {
 		db.Exec("DELETE FROM otpdata WHERE otp = ?", otp)
+		loginOtpForget(otp)
 		writeJSON(w, http.StatusOK, map[string]string{"status": "lost"})
 		return
 	}
@@ -338,6 +371,7 @@ func handleLoginGET(w http.ResponseWriter, r *http.Request) {
 
 	// 删除已使用的 OTP
 	db.Exec("DELETE FROM otpdata WHERE otp = ?", otp)
+	loginOtpForget(otp)
 
 	resp := LoginResponse{
 		UserData: []User{user},

@@ -246,7 +246,7 @@ function startPoll() {
     } catch (e) {
       // 单次网络抖动忽略，下一轮重试
     }
-  }, 3000)
+  }, 5000) // 后端对轮询做 5 秒限频，前端对齐 5 秒间隔
 }
 function stopPoll() {
   if (pollTimer) {
